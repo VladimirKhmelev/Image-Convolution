@@ -1,0 +1,336 @@
+package org.example.convolution
+
+import kotlinx.coroutines.runBlocking
+import kotlin.math.abs
+import kotlin.random.Random
+import kotlin.test.*
+
+// Вспомогательные функции для тестирования
+
+// Погрешность при сравнении значений
+private const val EPS = 2e-4f
+
+/**
+ * Сравнение двух изображений попиксельно с заданной точностью,
+ * при несовпадении выводит сообщение с координатами и значениями
+ */
+private fun assertImagesEqual(
+    expected: GrayImage,
+    actual:   GrayImage,
+    eps:      Float = EPS,
+    label:    String = ""
+) {
+    assertEquals(expected.width,  actual.width,  "width mismatch $label")
+    assertEquals(expected.height, actual.height, "height mismatch $label")
+    for (i in expected.data.indices) {
+        val diff = abs(expected.data[i] - actual.data[i])
+        assertTrue(diff <= eps,
+            "pixel $i (y=${i / expected.width}, x=${i % expected.width}): " +
+            "expected=${expected.data[i]}, got=${actual.data[i]}, diff=$diff $label")
+    }
+}
+
+/**
+ * Сравнивает только внутреннюю область изображения, отступая [pad] пикселей от краёв
+ */
+private fun assertInteriorEqual(
+    expected: GrayImage,
+    actual:   GrayImage,
+    pad:      Int,
+    eps:      Float = EPS,
+    label:    String = ""
+) {
+    assertEquals(expected.width,  actual.width)
+    assertEquals(expected.height, actual.height)
+    val w = expected.width; val h = expected.height
+    check(w > 2 * pad && h > 2 * pad) { "image too small for pad=$pad: ${w}×${h}" }
+    for (y in pad until h - pad)
+        for (x in pad until w - pad) {
+            val diff = abs(expected[y, x] - actual[y, x])
+            assertTrue(diff <= eps,
+                "interior pixel ($y,$x): expected=${expected[y, x]}, " +
+                "got=${actual[y, x]}, diff=$diff $label")
+        }
+}
+
+/**
+ * Генерирует случайное изображение заданного размера с фиксированным seed
+ * Использует один генератор Random для всего массива
+ */
+private fun randomImageFast(width: Int, height: Int, seed: Long = 42): GrayImage {
+    val rng = Random(seed)
+    return GrayImage(width, height, FloatArray(width * height) { rng.nextFloat() * 255f })
+}
+
+/**
+ * Создаёт изображение, заполненное постоянным значением
+ */
+private fun constantImage(width: Int, height: Int, value: Float) =
+    GrayImage(width, height, FloatArray(width * height) { value })
+
+/**
+ * Обрамляет ядро нулями по краям (добавляет по одной строке/столбцу сверху, снизу, слева, справа)
+ * Результирующее ядро имеет размер (h+2)×(w+2)
+ * Используется для проверки инвариантности свёртки относительно добавления нулевого обрамления
+ */
+private fun zeroPadKernel(k: Array<FloatArray>): Array<FloatArray> {
+    val h = k.size + 2; val w = k[0].size + 2
+    return Array(h) { y ->
+        FloatArray(w) { x ->
+            if (y in 1..k.size && x in 1..k[0].size) k[y - 1][x - 1] else 0f
+        }
+    }
+}
+
+// Задача 1 - последовательная свёртка
+
+/**
+ * Тесты для последовательной свёртки
+ * Проверяют корректность на простых фильтрах, свойство композиции,
+ * инвариантность относительно добавления нулевого обрамления,
+ * а также работу на граничных размерах изображений
+ */
+class SequentialConvolutionTest {
+
+    // Фильтры с известным результатом
+
+    /** Тождественный фильтр не должен изменять изображение */
+    @Test fun `identity filter returns same image`() {
+        val img = randomImageFast(50, 50)
+        assertImagesEqual(img, convolveSequential(img, Kernels.IDENTITY))
+    }
+
+    /** Тождественный фильтр работает на любых размерах, включая 1×1, 1×N, N×1 */
+    @Test fun `identity filter on various image sizes`() {
+        for ((w, h) in listOf(1 to 1, 1 to 10, 10 to 1, 7 to 13, 100 to 100, 3 to 200)) {
+            val img = randomImageFast(w, h, seed = w * 31L + h)
+            assertImagesEqual(img, convolveSequential(img, Kernels.IDENTITY), label = "${w}×${h}")
+        }
+    }
+
+    /** Нулевое ядро (все веса 0) должно давать полностью чёрное изображение */
+    @Test fun `zero kernel produces all-black image`() {
+        val img = randomImageFast(50, 50)
+        val zeroKernel = Array(3) { FloatArray(3) }
+        assertImagesEqual(constantImage(50, 50, 0f), convolveSequential(img, zeroKernel))
+    }
+
+    /** Нулевое ядро размера 5×5 тоже даёт чёрное изображение */
+    @Test fun `zero kernel of size 5x5 also produces all-black image`() {
+        val img = randomImageFast(40, 40)
+        assertImagesEqual(constantImage(40, 40, 0f), convolveSequential(img, Array(5) { FloatArray(5) }))
+    }
+
+    // Свойство композиции: последовательное применение K1 затем K2 должно совпадать
+
+    /** Композиция двух ядер (Box Blur → Sharpen) эквивалентна составному ядру */
+    @Test fun `composing two kernels equals sequential application (interior)`() {
+        val img = randomImageFast(64, 64)
+        val sequential = convolveSequential(convolveSequential(img, Kernels.BOX_BLUR), Kernels.SHARPEN)
+        val composed   = convolveSequential(img, composeKernels(Kernels.BOX_BLUR, Kernels.SHARPEN))
+        // Составное ядро 5×5 → отступ от края = 2
+        assertInteriorEqual(sequential, composed, pad = 2, eps = 1e-3f)
+    }
+
+    /** Композиция трёх ядер (Gaussian → Sharpen → Box) эквивалентна составному ядру */
+    @Test fun `composing three kernels equals sequential application (interior)`() {
+        val img = randomImageFast(64, 64)
+        val ks = listOf(Kernels.GAUSSIAN_BLUR, Kernels.SHARPEN, Kernels.BOX_BLUR)
+        val sequential = ks.fold(img, ::convolveSequential)
+        val composed   = convolveSequential(img, ks.composed())
+        // 3 ядра 3×3 → составное 7×7 → отступ = 3
+        assertInteriorEqual(sequential, composed, pad = 3, eps = 1e-2f)
+    }
+
+    /** Проверка, что расширение List<Array<FloatArray>>.composed() работает правильно */
+    @Test fun `List composed() extension folds correctly`() {
+        val img = randomImageFast(50, 50)
+        val ks = listOf(Kernels.GAUSSIAN_BLUR, Kernels.EDGE_DETECTION)
+        val a = convolveSequential(convolveSequential(img, ks[0]), ks[1])
+        val b = convolveSequential(img, ks.composed())
+        assertInteriorEqual(a, b, pad = 2, eps = 1e-3f)
+    }
+
+    // Инвариантность относительно нулевого разложения
+
+    /** Добавление нулевой строки/столбца вокруг ядра не меняет результат свёртки */
+    @Test fun `zero-padding a kernel does not change result`() {
+        val img = randomImageFast(60, 60)
+        for (kernel in listOf(Kernels.BOX_BLUR, Kernels.SHARPEN,
+                              Kernels.EDGE_DETECTION, Kernels.GAUSSIAN_BLUR, Kernels.EMBOSS)) {
+            val r1 = convolveSequential(img, kernel)
+            val r2 = convolveSequential(img, zeroPadKernel(kernel))
+            assertImagesEqual(r1, r2, label = "kernel size ${kernel.size}×${kernel[0].size}")
+        }
+    }
+
+    /** Двукратное добавление нулевого обрамления также не меняет результат */
+    @Test fun `double zero-padding a kernel does not change result`() {
+        val img = randomImageFast(60, 60)
+        val r1 = convolveSequential(img, Kernels.GAUSSIAN_BLUR)
+        val r2 = convolveSequential(img, zeroPadKernel(zeroPadKernel(Kernels.GAUSSIAN_BLUR)))
+        assertImagesEqual(r1, r2)
+    }
+
+    // Граничные / крайние случаи размеров изображений
+
+    /** Изображение 1×1 не должно вызывать исключений ни для одного предопределённого фильтра */
+    @Test fun `1x1 image with identity`() {
+        val img = GrayImage(1, 1, floatArrayOf(200f))
+        assertImagesEqual(img, convolveSequential(img, Kernels.IDENTITY))
+    }
+
+    @Test fun `1x1 image with all predefined kernels does not throw`() {
+        val img = GrayImage(1, 1, floatArrayOf(128f))
+        for ((name, k) in Kernels.all) {
+            assertNotNull(convolveSequential(img, k), "failed for $name")
+        }
+    }
+
+    /** Изображение из одной строки (1×N) с тождественным фильтром */
+    @Test fun `single-row image with identity`() {
+        val img = randomImageFast(100, 1)
+        assertImagesEqual(img, convolveSequential(img, Kernels.IDENTITY))
+    }
+
+    /** Изображение из одного столбца (N×1) с тождественным фильтром */
+    @Test fun `single-column image with identity`() {
+        val img = randomImageFast(1, 100)
+        assertImagesEqual(img, convolveSequential(img, Kernels.IDENTITY))
+    }
+
+    /** Изображение размером ровно с ядро (3×3) — должно работать без ошибок */
+    @Test fun `image exactly the same size as kernel`() {
+        val img = randomImageFast(3, 3)
+        // Must not throw; identity should round-trip the center pixel exactly
+        val result = convolveSequential(img, Kernels.IDENTITY)
+        assertEquals(img[1, 1], result[1, 1])
+    }
+
+    // Случайные ядра нечётного размера
+
+    /** Проверка инвариантности добавления нулей для случайных ядер размеров 1,3,5,7 */
+    @Test fun `random odd-sized kernels zero-expansion invariance`() {
+        val rng = Random(7)
+        val img = randomImageFast(60, 60)
+        for (kSize in listOf(1, 3, 5, 7)) {
+            val kernel = Array(kSize) { FloatArray(kSize) { rng.nextFloat() * 2f - 1f } }
+            val r1 = convolveSequential(img, kernel)
+            val r2 = convolveSequential(img, zeroPadKernel(kernel))
+            assertImagesEqual(r1, r2, eps = 1e-3f, label = "kSize=$kSize")
+        }
+    }
+}
+
+// Задача 2 - параллельная свёртка
+
+/**
+ * Тесты для параллельной свёртки (convolveParallel)
+ * Проверяют, что все параллельные режимы (BY_PIXEL, BY_ROW, BY_COLUMN, BY_GRID)
+ * дают тот же результат, что и последовательная версия, на разных размерах
+ * изображений, ядрах и конфигурациях потоков
+ */
+class ParallelConvolutionTest {
+
+    /**
+     * Ппроверяет, что указанный параллельный режим для заданных
+     * параметров выдаёт результат, идентичный последовательной свёртке
+     */
+    private fun checkMode(mode: ParallelMode, w: Int = 80, h: Int = 60,
+                          kernel: Array<FloatArray> = Kernels.GAUSSIAN_BLUR,
+                          seed: Long = 42) = runBlocking {
+        val img      = randomImageFast(w, h, seed)
+        val expected = convolveSequential(img, kernel)
+        for (threads in listOf(1, 2, 4, 8)) {
+            val actual = convolveParallel(img, kernel, mode, numThreads = threads)
+            assertImagesEqual(expected, actual, label = "$mode threads=$threads ${w}×${h}")
+        }
+    }
+
+    @Test fun `BY_PIXEL matches sequential`()  = checkMode(ParallelMode.BY_PIXEL)
+    @Test fun `BY_ROW matches sequential`()    = checkMode(ParallelMode.BY_ROW)
+    @Test fun `BY_COLUMN matches sequential`() = checkMode(ParallelMode.BY_COLUMN)
+    @Test fun `BY_GRID matches sequential`()   = checkMode(ParallelMode.BY_GRID)
+
+    /** Все предопределённые фильтры работают корректно во всех параллельных режимах */
+    @Test fun `all predefined kernels correct in all parallel modes`() = runBlocking {
+        val img = randomImageFast(64, 48, seed = 123)
+        for ((name, kernel) in Kernels.all) {
+            val expected = convolveSequential(img, kernel)
+            for (mode in ParallelMode.entries) {
+                val actual = convolveParallel(img, kernel, mode, numThreads = 4)
+                assertImagesEqual(expected, actual, label = "$name / $mode")
+            }
+        }
+    }
+
+    /** Явные формы сетки (различные соотношения строк/столбцов) должны работать правильно */
+    @Test fun `BY_GRID explicit grid shapes match sequential`() = runBlocking {
+        val img    = randomImageFast(100, 75)
+        val kernel = Kernels.EDGE_DETECTION
+        val expected = convolveSequential(img, kernel)
+        for ((gr, gc) in listOf(1 to 1, 2 to 3, 3 to 5, 7 to 4, 10 to 10)) {
+            val actual = convolveParallel(img, kernel, ParallelMode.BY_GRID,
+                numThreads = gr * gc, gridRows = gr, gridCols = gc)
+            assertImagesEqual(expected, actual, label = "grid=${gr}×${gc}")
+        }
+    }
+
+    /** Сетка, размер которой превышает размеры изображения, не должна вызывать ошибок */
+    @Test fun `BY_GRID grid larger than image dimensions`() = runBlocking {
+        val img    = randomImageFast(5, 5)
+        val kernel = Kernels.IDENTITY
+        val expected = convolveSequential(img, kernel)
+        val actual = convolveParallel(img, kernel, ParallelMode.BY_GRID,
+            numThreads = 25, gridRows = 10, gridCols = 10)
+        assertImagesEqual(expected, actual)
+    }
+
+    /** Параллельные режимы на маленьких и «неправильных» размерах изображений */
+    @Test fun `parallel modes on small and odd-shaped images`() = runBlocking {
+        for ((w, h) in listOf(1 to 1, 3 to 3, 5 to 7, 10 to 3, 2 to 100)) {
+            val img      = randomImageFast(w, h, seed = w * 17L + h)
+            val expected = convolveSequential(img, Kernels.SHARPEN)
+            for (mode in ParallelMode.entries) {
+                val actual = convolveParallel(img, Kernels.SHARPEN, mode, numThreads = 8)
+                assertImagesEqual(expected, actual, label = "${w}×${h} / $mode")
+            }
+        }
+    }
+
+    /** Если потоков больше, чем строк (или пикселей), код не должен падать и давать правильный результат */
+    @Test fun `more threads than rows does not crash or produce wrong result`() = runBlocking {
+        val img      = randomImageFast(50, 3)   // only 3 rows
+        val expected = convolveSequential(img, Kernels.GAUSSIAN_BLUR)
+        for (mode in ParallelMode.entries) {
+            val actual = convolveParallel(img, Kernels.GAUSSIAN_BLUR, mode, numThreads = 16)
+            assertImagesEqual(expected, actual, label = "$mode 16 threads on 3-row image")
+        }
+    }
+
+    /** Случайные ядра разных размеров: параллельные режимы должны совпадать с последовательным */
+    @Test fun `random odd-sized kernels parallel equals sequential`() = runBlocking {
+        val rng = Random(42)
+        val img = randomImageFast(64, 64)
+        for (kSize in listOf(1, 3, 5, 7)) {
+            val kernel = Array(kSize) { FloatArray(kSize) { rng.nextFloat() * 2f - 1f } }
+            val expected = convolveSequential(img, kernel)
+            for (mode in ParallelMode.entries) {
+                val actual = convolveParallel(img, kernel, mode, numThreads = 4)
+                assertImagesEqual(expected, actual, eps = 1e-3f, label = "${kSize}×${kSize} / $mode")
+            }
+        }
+    }
+
+    /** Параллельный конвейер должен давать тот же результат,
+     *  что и последовательный конвейер */
+    @Test fun `parallel pipeline matches sequential pipeline`() = runBlocking {
+        val img = randomImageFast(64, 48)
+        val kernels = listOf(Kernels.GAUSSIAN_BLUR, Kernels.SHARPEN, Kernels.BOX_BLUR)
+        val expected = convolveSequentialPipeline(img, kernels)
+        for (mode in ParallelMode.entries) {
+            val actual = convolveParallelPipeline(img, kernels, mode, numThreads = 4)
+            assertImagesEqual(expected, actual, label = "pipeline / $mode")
+        }
+    }
+}
