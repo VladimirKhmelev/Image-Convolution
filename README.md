@@ -22,20 +22,16 @@
 ./gradlew test
 ```
 
-Отчёты: `build/reports/tests/test/index.html` · `build/reports/jacoco/test/html/index.html`
-
-## Анализ производительности
-
-```bash
-./scripts/sweep.sh photo.png          # графики в plots/
-./scripts/sweep.sh photo.png --sizes  # + кэш-эффект по размерам
-```
-
-> Требует `matplotlib` и `numpy` — устанавливаются автоматически.
+Отчёты: `build/reports/tests/test/index.html` и `build/reports/jacoco/test/html/index.html`
 
 ## Фильтры
 
-`Идентити` · `Box Blur` · `Gaussian Blur` · `Резкость` · `Края` · `Эмбосс`
+- Идентити
+- Box Blur
+- Gaussian Blur
+- Резкость
+- Края
+- Эмбосс
 
 ## Стратегии параллелизации
 
