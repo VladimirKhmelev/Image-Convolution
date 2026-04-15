@@ -34,7 +34,7 @@ fun AppContent() {
     // Состояния UI
     var originalImage  by remember { mutableStateOf<BufferedImage?>(null) }
     var processedImage by remember { mutableStateOf<BufferedImage?>(null) }
-    val kernelPipeline: SnapshotStateList<String> = remember { mutableStateListOf("Gaussian Blur") } // Список имён фильтров
+    val kernelPipeline: SnapshotStateList<String> = remember { mutableStateListOf("Gaussian Blur 3×3") } // Список имён фильтров
     var useComposed    by remember { mutableStateOf(false) }                                 // Объединить ли в одно ядро
     var selectedMode   by remember { mutableStateOf<ConvolutionMode>(ConvolutionMode.Sequential) }
     var numThreads     by remember { mutableStateOf(Runtime.getRuntime().availableProcessors()) }
@@ -53,7 +53,6 @@ fun AppContent() {
     MaterialTheme {
         Row(modifier = Modifier.fillMaxSize()) {
 
-            // Боковая панель
             Surface(
                 modifier = Modifier.width(264.dp).fillMaxHeight(),
                 tonalElevation = 2.dp
@@ -66,7 +65,6 @@ fun AppContent() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
 
-                    // Фильтры
                     SidebarSection("Фильтры")
 
                     kernelPipeline.forEachIndexed { i, name ->
@@ -117,7 +115,6 @@ fun AppContent() {
 
                     HorizontalDivider()
 
-                    // Алгоритмы
                     SidebarSection("Алгоритм")
 
                     LabeledDropdown(
@@ -163,7 +160,6 @@ fun AppContent() {
                     Spacer(Modifier.weight(1f))
                     HorizontalDivider()
 
-                    // Применение
                     Button(
                         onClick = {
                             val img = originalImage ?: return@Button
@@ -226,7 +222,6 @@ fun AppContent() {
                     .padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Оригинал
                 ImagePanel(
                     label = "Оригинал (grayscale)",
                     bitmap = originalBitmap,
@@ -251,7 +246,6 @@ fun AppContent() {
                     }) { Text("Загрузить") }
                 }
 
-                // Результат
                 ImagePanel(
                     label = buildString {
                         append("Результат")
@@ -283,7 +277,7 @@ fun AppContent() {
     }
 }
 
-// ── Вспомогательные ────
+// Вспомогательные функции
 
 @Composable
 private fun SidebarSection(title: String) {
@@ -294,7 +288,6 @@ private fun SidebarSection(title: String) {
     )
 }
 
-// Цепочка фильтров
 @Composable
 private fun PipelineItem(
     index: Int,

@@ -10,7 +10,7 @@ import org.example.ui.AppContent
 fun main(args: Array<String>) {
     if (args.isNotEmpty()) {
         // Если аргументы есть — работаем в консольном режиме, иначе запускаем GUI
-        val flagsWithValues = setOf("threads", "grid-rows", "grid-cols", "tile-size", "output", "strategy", "csv")
+        val flagsWithValues = setOf("threads", "grid-rows", "grid-cols", "tile-size", "output", "strategy", "csv", "kernel-size")
 
         val valueIndices = mutableSetOf<Int>()
         for (i in args.indices) {
@@ -55,6 +55,11 @@ fun main(args: Array<String>) {
         val outputPath = parseStringFlag("output")
         val strategy   = parseStringFlag("strategy")
         val csvPath    = parseStringFlag("csv")
+        val kernelSizes = parseStringFlag("kernel-size")
+            ?.split(",")
+            ?.map { it.trim().toIntOrNull() ?: error("Неверное значение --kernel-size: \"${it.trim()}\", ожидается целое число") }
+            ?.toSet()
+            ?: emptySet()
 
         if (benchmark) {
             runBenchmark(
@@ -65,7 +70,8 @@ fun main(args: Array<String>) {
                 gridCols    = gridCols,
                 tileSize    = tileSize,
                 compose     = compose,
-                csvPath     = csvPath
+                csvPath     = csvPath,
+                kernelSizes = kernelSizes
             )
         } else {
             runApply(

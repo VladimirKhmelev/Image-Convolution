@@ -5,7 +5,8 @@ import java.awt.image.BufferedImage
 import kotlin.math.sqrt
 
 // Представление картинки в оттенках серого
-// Класс для хранения изображения в градациях серого
+
+/** Класс для хранения изображения в градациях серого */
 class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
     constructor(width: Int, height: Int) : this(width, height, FloatArray(width * height))
 
@@ -15,7 +16,6 @@ class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
 
 /** Конвертация между BufferedImage и GrayImage
  * Используется стандартная формула Rec. 601: Y = 0.299*R + 0.587*G + 0.114*B
- * shr - битовый сдвиг вправо
  */
 fun BufferedImage.toGrayImage(): GrayImage {
     val w = width; val h = height
@@ -30,7 +30,7 @@ fun BufferedImage.toGrayImage(): GrayImage {
     return img
 }
 
-//  Преобразует GrayImage обратно в BufferedImage
+/**  Преобразует GrayImage обратно в BufferedImage */
 fun GrayImage.toBufferedImage(): BufferedImage {
     val out = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
     for (y in 0 until height) for (x in 0 until width) {
@@ -40,19 +40,9 @@ fun GrayImage.toBufferedImage(): BufferedImage {
     return out
 }
 
-// Применение ядра свёртки в одной точке
 /**
  * Применяет ядро свёртки к одному пикселю (x, y) исходного изображения.
  * Обрабатывает границы: выход за пределы изображения игнорируется (не вносит вклад в сумму).
- *
- * @param src исходное изображение
- * @param kernel матрица ядра (высота kH, ширина kW)
- * @param kH высота ядра
- * @param kW ширина ядра
- * @param padY вертикальный отступ от центра ядра (kH/2)
- * @param padX горизонтальный отступ от центра ядра (kW/2)
- * @param x координата x пикселя назначения
- * @param y координата y пикселя назначения
  */
 private fun applyKernelAt(
     src: GrayImage,
@@ -75,7 +65,6 @@ private fun applyKernelAt(
 }
 
 // Задание 1 - последовательно
-
 fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
     val kH = kernel.size; val kW = kernel[0].size
     val padY = kH / 2;    val padX = kW / 2
@@ -87,17 +76,16 @@ fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
 }
 
 // Задание 2b - композиция фильтров
-
 /**
  * Композиция двух ядер свёртки
  *
  * Если применить к изображению сначала фильтр с ядром k1, а затем фильтр с ядром k2,
  * то результат будет в точности таким же, как если бы применить один фильтр,
- * ядро которого равно свёртке k1 и k2: `result = k1 * k2`.
+ * ядро которого равно свёртке k1 и k2: `result = k1 * k2`
  *
- * Позволяет объединить последовательность из нескольких фильтров (например, размытие, затем резкость)
- * в один фильтр, что ускоряет обработку, особенно для больших изображений.
- * Ссылка на вики - https://en.wikipedia.org/wiki/Convolution#Properties, Associativity
+ * Позволяет объединить последовательность из нескольких фильтров
+ * в один фильтр, что ускоряет обработку, особенно для больших изображений
+ * @see - https://en.wikipedia.org/wiki/Convolution#Properties
  *
 */
 fun composeKernels(k1: Array<FloatArray>, k2: Array<FloatArray>): Array<FloatArray> {
@@ -116,16 +104,16 @@ fun composeKernels(k1: Array<FloatArray>, k2: Array<FloatArray>): Array<FloatArr
     }
 }
 
-// Свёртка списка ядер в одно путём последовательной композиции
+/** Свёртка списка ядер в одно путём последовательной композиции */
 fun List<Array<FloatArray>>.composed(): Array<FloatArray> = reduce(::composeKernels)
 
-// Применяет список ядер последовательно (одно за другим) в одном потоке.
+/** Применяет список ядер последовательно (одно за другим) в одном потоке */
 fun convolveSequentialPipeline(
     src: GrayImage,
     kernels: List<Array<FloatArray>>
 ): GrayImage = kernels.fold(src, ::convolveSequential)
 
-// Применяет список ядер последовательно, но каждый шаг выполняется параллельно согласно заданному режиму
+/** Применяет список ядер последовательно, но каждый шаг выполняется параллельно согласно заданному режиму */
 suspend fun convolveParallelPipeline(
     src: GrayImage,
     kernels: List<Array<FloatArray>>,
@@ -146,7 +134,7 @@ enum class ParallelMode(val label: String) {
     BY_GRID  ("По сетке")
 }
 
-// Выбор режима свёртки в пользовательском режиме
+/** Выбор режима свёртки в пользовательском режиме */
 sealed class ConvolutionMode(val label: String) {
     data object Sequential : ConvolutionMode("Последовательный")
     data class  Parallel(val mode: ParallelMode) : ConvolutionMode(mode.label)
@@ -159,16 +147,9 @@ sealed class ConvolutionMode(val label: String) {
 }
 
 // Выполнение свёртки одного ядра в параллельном режиме заданного изображения
+
 /**
- * Выполняет свёртку одного ядра с заданным изображением в параллельном режиме.
-Функция является suspend и использует Dispatchers.Default для корутин
- *
- * @param src исходное изображение
- * @param kernel ядро свёртки
- * @param mode режим распараллеливания
- * @param numThreads количество потоков (корутин) для BY_PIXEL, BY_ROW, BY_COLUMN; для BY_GRID — ориентир
- * @param gridRows количество строк сетки (0 = автоматически)
- * @param gridCols количество столбцов сетки (0 = автоматически)
+ * Выполняет свёртку одного ядра с заданным изображением в параллельном режиме
  */
 suspend fun convolveParallel(
     src: GrayImage,

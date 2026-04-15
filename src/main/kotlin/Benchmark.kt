@@ -225,7 +225,8 @@ fun runBenchmark(
     gridCols:    Int?         = null,
     tileSize:    Int?         = null,
     compose:     Boolean      = false,
-    csvPath:     String?      = null
+    csvPath:     String?      = null,
+    kernelSizes: Set<Int>     = emptySet()
 ) {
     val file = File(imagePath)
     require(file.exists()) { "Файл не найден: $imagePath" }
@@ -267,12 +268,23 @@ fun runBenchmark(
 
     // Формирование списка конфигураций фильтров для тестирования
     //
-    //  - Нет имён → каждый фильтр по отдельности
+    //  - Нет имён → каждый фильтр по отдельности (с фильтрацией по --kernel-size если задан)
     //  - Одно имя → один фильтр
     //  - Несколько → цепочка (pipeline), --compose добавляет вариант с составным ядром для сравнения
     //
     val kernelConfigs: List<Pair<String, List<Array<FloatArray>>>> = when {
-        kernelNames.isEmpty() -> Kernels.all.map { (name, k) -> name to listOf(k) }
+        kernelNames.isEmpty() -> {
+            val allKernels = if (kernelSizes.isEmpty()) {
+                Kernels.all.entries.toList()
+            } else {
+                Kernels.all.entries.filter { (_, k) -> k.size in kernelSizes }
+            }
+            require(allKernels.isNotEmpty()) {
+                "Нет фильтров с размером ядра ${kernelSizes.sorted().joinToString()}. " +
+                "Доступные размеры: ${Kernels.all.values.map { it.size }.toSortedSet().joinToString()}"
+            }
+            allKernels.map { (name, k) -> name to listOf(k) }
+        }
         else -> {
             val ks = kernelNames.map { name ->
                 Kernels.all[name] ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
