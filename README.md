@@ -10,19 +10,23 @@
 ./gradlew run
 
 # CLI — применить фильтр
-./gradlew run --args='photo.png "Gaussian Blur" --strategy rows --output result.png'
+./gradlew run --args='photo.png "Gaussian Blur 3×3" --strategy rows --output result.png'
 
-# CLI — с потоками и цепочкой фильтров
-./gradlew run --args='photo.png "Gaussian Blur" "Резкость" --strategy rows --threads 4 --output result.png'
-
-# CLI — скомпоновать цепочку в одно ядро
-./gradlew run --args='photo.png "Gaussian Blur" "Резкость" --compose --strategy rows --threads 4 --output result.png'
+# CLI — цепочка фильтров
+./gradlew run --args='photo.png "Gaussian Blur 3×3" "Резкость 3×3" --strategy rows --threads 4 --output result.png'
 
 # CLI — бенчмарк всех стратегий
 ./gradlew run --args='photo.png --benchmark'
+
+# CLI — пайплайн (пакетная обработка директории)
+./gradlew run --args='/path/to/images/ "Gaussian Blur 3×3" --pipeline --workers 4 --output results/'
+
+# CLI — бенчмарк пайплайна
+./gradlew run --args='photo.png "Gaussian Blur 3×3" --pipeline --benchmark --batch-size 32'
 ```
 
 Все флаги CLI описаны в [DOCS.md](DOCS.md).
+Структура пакетов и архитектура — там же, в разделе «Архитектура проекта».
 
 ## Тесты
 
@@ -43,20 +47,28 @@
 | 7×7    | 49         | то же самое                                               |
 | 9×9    | 81         | то же самое                                               |
 
-## Стратегии параллелизации
+## Стратегии параллелизации (одно изображение)
 
-| Ключ      | Описание                        |
-|-----------|---------------------------------|
-| `seq`     | Последовательный                |
-| `pixels`  | По пикселям                     |
-| `rows`    | По строкам                      |
-| `cols`    | По столбцам                     |
-| `grid`    | По сетке (2D, настраиваемая)    |
+| Ключ     | Описание                     |
+|----------|------------------------------|
+| `seq`    | Последовательный             |
+| `pixels` | По пикселям                  |
+| `rows`   | По строкам                   |
+| `cols`   | По столбцам                  |
+| `grid`   | По сетке (2D, настраиваемая) |
 
-Подробнее — [DOCS.md](DOCS.md).
+## Пайплайн (пакетная обработка)
 
-## Требования
+Режим `--pipeline` обрабатывает массив изображений потоком: ридер → N воркеров → врайтер.
+Bounded channels ограничивают память (backpressure). Подробнее — [DOCS.md](DOCS.md).
 
-- JVM 21+
-- Kotlin 2.1.0
-- Gradle 8.x
+## Технологии
+
+- **Язык:** Kotlin 2.1.0
+- **JVM:** 21+
+- **Сборка:** Gradle 8.x
+- **Тестирование:** JUnit 5, JaCoCo
+
+## Лицензия
+
+Этот проект распространяется под лицензией MIT. Подробности см. в файле [LICENSE](LICENSE).

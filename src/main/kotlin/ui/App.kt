@@ -8,7 +8,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -17,38 +16,19 @@ import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.example.convolution.*
-import java.awt.image.BufferedImage
-import java.io.File
-import javax.imageio.ImageIO
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
-import kotlin.system.measureTimeMillis
+import org.example.convolution.ConvolutionMode
+import org.example.convolution.Kernels
+import org.example.convolution.ParallelMode
 
 @Composable
 fun AppContent() {
-
-    // Состояния UI
-    var originalImage  by remember { mutableStateOf<BufferedImage?>(null) }
-    var processedImage by remember { mutableStateOf<BufferedImage?>(null) }
-    val kernelPipeline: SnapshotStateList<String> = remember { mutableStateListOf("Gaussian Blur 3×3") } // Список имён фильтров
-    var useComposed    by remember { mutableStateOf(false) }                                 // Объединить ли в одно ядро
-    var selectedMode   by remember { mutableStateOf<ConvolutionMode>(ConvolutionMode.Sequential) }
-    var numThreads     by remember { mutableStateOf(Runtime.getRuntime().availableProcessors()) }
-    var gridRows       by remember { mutableStateOf(2) }
-    var gridCols       by remember { mutableStateOf(4) }
-    var elapsedMs      by remember { mutableStateOf<Long?>(null) } // Время выполнения в мс
-    var isProcessing   by remember { mutableStateOf(false) }
-    var errorMessage   by remember { mutableStateOf<String?>(null) }
-
-    val originalBitmap  by remember(originalImage)  { derivedStateOf { originalImage?.toComposeImageBitmap() } }
-    val processedBitmap by remember(processedImage) { derivedStateOf { processedImage?.toComposeImageBitmap() } }
-
+    val vm = remember { AppViewModel() }
     val scope = rememberCoroutineScope()
     val maxThreads = Runtime.getRuntime().availableProcessors().coerceAtLeast(8)
+
+    val originalBitmap  by remember(vm.originalImage)  { derivedStateOf { vm.originalImage?.toComposeImageBitmap() } }
+    val processedBitmap by remember(vm.processedImage) { derivedStateOf { vm.processedImage?.toComposeImageBitmap() } }
 
     MaterialTheme {
         Row(modifier = Modifier.fillMaxSize()) {
@@ -67,7 +47,7 @@ fun AppContent() {
 
                     SidebarSection("Фильтры")
 
-                    kernelPipeline.forEachIndexed { i, name ->
+                    vm.kernelPipeline.forEachIndexed { i, name ->
                         if (i > 0) {
                             Text(
                                 "↓",
@@ -77,39 +57,34 @@ fun AppContent() {
                             )
                         }
                         PipelineItem(
-                            index    = i,
-                            name     = name,
-                            canRemove = kernelPipeline.size > 1,
-                            onSelect = { kernelPipeline[i] = it },
-                            onRemove = { kernelPipeline.removeAt(i) }
+                            index     = i,
+                            name      = name,
+                            canRemove = vm.kernelPipeline.size > 1,
+                            onSelect  = { vm.kernelPipeline[i] = it },
+                            onRemove  = { vm.kernelPipeline.removeAt(i) }
                         )
                     }
 
                     TextButton(
-                        onClick = { kernelPipeline.add(kernelPipeline.last()) },
+                        onClick = { vm.kernelPipeline.add(vm.kernelPipeline.last()) },
                         modifier = Modifier.fillMaxWidth()
                     ) { Text("+ Добавить фильтр") }
 
-                    // Объединение в одно ядро
-                    if (kernelPipeline.size > 1) {
+                    if (vm.kernelPipeline.size > 1) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Checkbox(checked = useComposed, onCheckedChange = { useComposed = it })
+                            Checkbox(checked = vm.useComposed, onCheckedChange = { vm.useComposed = it })
                             Text("Объединить в одно ядро", fontSize = 13.sp)
                         }
-                        if (useComposed) {
-                            val ks = kernelPipeline.mapNotNull { Kernels.all[it] }
-                            if (ks.size > 1) {
-                                val c = ks.composed() // Вычисление свертки
-                                Text(
-                                    "Составное ядро: ${c.size}×${c[0].size}",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 4.dp)
-                                )
-                            }
+                        vm.composedKernelSize()?.let { (rows, cols) ->
+                            Text(
+                                "Составное ядро: ${rows}×${cols}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 4.dp)
+                            )
                         }
                     }
 
@@ -118,42 +93,40 @@ fun AppContent() {
                     SidebarSection("Алгоритм")
 
                     LabeledDropdown(
-                        selected = selectedMode.label,
+                        selected = vm.selectedMode.label,
                         options  = ConvolutionMode.all.map { it.label },
                         onSelect = { label ->
-                            selectedMode = ConvolutionMode.all.first { it.label == label }
+                            vm.selectedMode = ConvolutionMode.all.first { it.label == label }
                         }
                     )
 
-                    // Настройка кол-во потоков
-                    if (selectedMode is ConvolutionMode.Parallel) {
-                        Text("Потоки: $numThreads", fontSize = 13.sp)
+                    if (vm.selectedMode is ConvolutionMode.Parallel) {
+                        Text("Потоки: ${vm.numThreads}", fontSize = 13.sp)
                         Slider(
-                            value = numThreads.toFloat(),
-                            onValueChange = { numThreads = it.toInt().coerceAtLeast(1) },
-                            valueRange = 1f..maxThreads.toFloat(),
-                            steps = maxThreads - 2,
-                            modifier = Modifier.fillMaxWidth()
+                            value         = vm.numThreads.toFloat(),
+                            onValueChange = { vm.numThreads = it.toInt().coerceAtLeast(1) },
+                            valueRange    = 1f..maxThreads.toFloat(),
+                            steps         = maxThreads - 2,
+                            modifier      = Modifier.fillMaxWidth()
                         )
                     }
 
-                    // Настройка сетки для BY_GRID
-                    if (selectedMode == ConvolutionMode.Parallel(ParallelMode.BY_GRID)) {
-                        Text("Строк сетки: $gridRows", fontSize = 13.sp)
+                    if (vm.selectedMode == ConvolutionMode.Parallel(ParallelMode.BY_GRID)) {
+                        Text("Строк сетки: ${vm.gridRows}", fontSize = 13.sp)
                         Slider(
-                            value = gridRows.toFloat(),
-                            onValueChange = { gridRows = it.toInt().coerceAtLeast(1) },
-                            valueRange = 1f..16f,
-                            steps = 14,
-                            modifier = Modifier.fillMaxWidth()
+                            value         = vm.gridRows.toFloat(),
+                            onValueChange = { vm.gridRows = it.toInt().coerceAtLeast(1) },
+                            valueRange    = 1f..16f,
+                            steps         = 14,
+                            modifier      = Modifier.fillMaxWidth()
                         )
-                        Text("Столбцов сетки: $gridCols", fontSize = 13.sp)
+                        Text("Столбцов сетки: ${vm.gridCols}", fontSize = 13.sp)
                         Slider(
-                            value = gridCols.toFloat(),
-                            onValueChange = { gridCols = it.toInt().coerceAtLeast(1) },
-                            valueRange = 1f..16f,
-                            steps = 14,
-                            modifier = Modifier.fillMaxWidth()
+                            value         = vm.gridCols.toFloat(),
+                            onValueChange = { vm.gridCols = it.toInt().coerceAtLeast(1) },
+                            valueRange    = 1f..16f,
+                            steps         = 14,
+                            modifier      = Modifier.fillMaxWidth()
                         )
                     }
 
@@ -161,60 +134,26 @@ fun AppContent() {
                     HorizontalDivider()
 
                     Button(
-                        onClick = {
-                            val img = originalImage ?: return@Button
-                            val mode = selectedMode
-                            val rawKernels = kernelPipeline.mapNotNull { Kernels.all[it] }
-                            if (rawKernels.isEmpty()) return@Button
-
-                            // Составляем в одно ядро если выбрано объединение
-                            val effectiveKernels = if (useComposed && rawKernels.size > 1)
-                                listOf(rawKernels.composed()) else rawKernels
-                            scope.launch {
-                                isProcessing = true
-                                errorMessage = null
-                                try {
-                                    val src = withContext(Dispatchers.Default) { img.toGrayImage() }
-                                    val dst: GrayImage
-                                    val ms = measureTimeMillis {
-                                        dst = when (mode) {
-                                            is ConvolutionMode.Sequential ->
-                                                withContext(Dispatchers.Default) {
-                                                    convolveSequentialPipeline(src, effectiveKernels)
-                                                }
-                                            is ConvolutionMode.Parallel ->
-                                                convolveParallelPipeline(src, effectiveKernels, mode.mode, numThreads, gridRows, gridCols)
-                                        }
-                                    }
-                                    processedImage = withContext(Dispatchers.Default) { dst.toBufferedImage() }
-                                    elapsedMs = ms
-                                } catch (e: Exception) {
-                                    errorMessage = "Ошибка: ${e.message}"
-                                } finally {
-                                    isProcessing = false
-                                }
-                            }
-                        },
-                        enabled = originalImage != null && !isProcessing,
+                        onClick  = { scope.launch { vm.applyFilters() } },
+                        enabled  = vm.originalImage != null && !vm.isProcessing,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        if (isProcessing) {
+                        if (vm.isProcessing) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(Modifier.width(8.dp))
                         }
                         Text("Применить")
                     }
 
-                    elapsedMs?.let {
+                    vm.elapsedMs?.let {
                         Text("Время: $it мс", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    errorMessage?.let {
+                    vm.errorMessage?.let {
                         Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     }
                 }
             }
 
-            // Отображение картинок
             Row(
                 modifier = Modifier
                     .weight(1f)
@@ -223,53 +162,25 @@ fun AppContent() {
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ImagePanel(
-                    label = "Оригинал (grayscale)",
-                    bitmap = originalBitmap,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    label       = "Оригинал (grayscale)",
+                    bitmap      = originalBitmap,
+                    modifier    = Modifier.weight(1f).fillMaxHeight(),
                     placeholder = "Загрузите изображение"
                 ) {
-                    Button(onClick = {
-                        val chooser = JFileChooser()
-                        chooser.fileFilter = FileNameExtensionFilter(
-                            "Изображения", "png", "jpg", "jpeg", "bmp", "gif"
-                        )
-                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-                            try {
-                                originalImage  = ImageIO.read(chooser.selectedFile)
-                                processedImage = null
-                                elapsedMs      = null
-                                errorMessage   = null
-                            } catch (e: Exception) {
-                                errorMessage = "Ошибка загрузки: ${e.message}"
-                            }
-                        }
-                    }) { Text("Загрузить") }
+                    Button(onClick = { vm.loadImage() }) { Text("Загрузить") }
                 }
 
                 ImagePanel(
                     label = buildString {
                         append("Результат")
-                        elapsedMs?.let { append(" — $it мс") }
+                        vm.elapsedMs?.let { append(" — $it мс") }
                     },
-                    bitmap = processedBitmap,
-                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    bitmap      = processedBitmap,
+                    modifier    = Modifier.weight(1f).fillMaxHeight(),
                     placeholder = "Здесь появится результат"
                 ) {
-                    if (processedImage != null) {
-                        Button(onClick = {
-                            val chooser = JFileChooser()
-                            chooser.selectedFile = File("result.png")
-                            if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
-                                val file = chooser.selectedFile.let {
-                                    if (it.name.endsWith(".png")) it else File("${it.path}.png")
-                                }
-                                try {
-                                    ImageIO.write(processedImage!!, "png", file)
-                                } catch (e: Exception) {
-                                    errorMessage = "Ошибка сохранения: ${e.message}"
-                                }
-                            }
-                        }) { Text("Сохранить") }
+                    if (vm.processedImage != null) {
+                        Button(onClick = { vm.saveImage() }) { Text("Сохранить") }
                     }
                 }
             }
@@ -277,7 +188,7 @@ fun AppContent() {
     }
 }
 
-// Вспомогательные функции
+// Вспомогательные composable
 
 @Composable
 private fun SidebarSection(title: String) {
@@ -301,8 +212,10 @@ private fun PipelineItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("${index + 1}.", fontSize = 12.sp, modifier = Modifier.width(18.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "${index + 1}.", fontSize = 12.sp, modifier = Modifier.width(18.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Box(modifier = Modifier.weight(1f)) {
             OutlinedButton(
                 onClick = { expanded = true },
@@ -314,7 +227,7 @@ private fun PipelineItem(
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                 Kernels.all.keys.forEach { option ->
                     DropdownMenuItem(
-                        text = { Text(option, fontSize = 13.sp) },
+                        text    = { Text(option, fontSize = 13.sp) },
                         onClick = { onSelect(option); expanded = false }
                     )
                 }
@@ -352,10 +265,10 @@ private fun ImagePanel(
         ) {
             if (bitmap != null) {
                 Image(
-                    bitmap = bitmap,
+                    bitmap             = bitmap,
                     contentDescription = label,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
+                    modifier           = Modifier.fillMaxSize(),
+                    contentScale       = ContentScale.Fit
                 )
             } else {
                 Text(placeholder, color = Color.Gray, fontSize = 13.sp)
@@ -384,7 +297,7 @@ private fun LabeledDropdown(
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option, fontSize = 13.sp) },
+                    text    = { Text(option, fontSize = 13.sp) },
                     onClick = { onSelect(option); expanded = false }
                 )
             }

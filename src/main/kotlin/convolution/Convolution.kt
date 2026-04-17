@@ -4,8 +4,6 @@ import kotlinx.coroutines.*
 import java.awt.image.BufferedImage
 import kotlin.math.sqrt
 
-// Представление картинки в оттенках серого
-
 /** Класс для хранения изображения в градациях серого */
 class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
     constructor(width: Int, height: Int) : this(width, height, FloatArray(width * height))
@@ -14,18 +12,20 @@ class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
     operator fun set(y: Int, x: Int, v: Float) { data[y * width + x] = v }
 }
 
-/** Конвертация между BufferedImage и GrayImage
+/**
+ * Конвертация между BufferedImage и GrayImage
  * Используется стандартная формула Rec. 601: Y = 0.299*R + 0.587*G + 0.114*B
  */
 fun BufferedImage.toGrayImage(): GrayImage {
     val w = width; val h = height
+    val pixels = getRGB(0, 0, w, h, null, 0, w)
     val img = GrayImage(w, h)
-    for (y in 0 until h) for (x in 0 until w) {
-        val rgb = getRGB(x, y)
+    for (i in pixels.indices) {
+        val rgb = pixels[i]
         val r = (rgb shr 16) and 0xFF
         val g = (rgb shr 8) and 0xFF
         val b = rgb and 0xFF
-        img[y, x] = 0.299f * r + 0.587f * g + 0.114f * b
+        img.data[i] = 0.299f * r + 0.587f * g + 0.114f * b
     }
     return img
 }
@@ -33,10 +33,11 @@ fun BufferedImage.toGrayImage(): GrayImage {
 /**  Преобразует GrayImage обратно в BufferedImage */
 fun GrayImage.toBufferedImage(): BufferedImage {
     val out = BufferedImage(width, height, BufferedImage.TYPE_INT_RGB)
-    for (y in 0 until height) for (x in 0 until width) {
-        val v = this[y, x].coerceIn(0f, 255f).toInt()
-        out.setRGB(x, y, (v shl 16) or (v shl 8) or v)
+    val pixels = IntArray(data.size) { i ->
+        val v = data[i].coerceIn(0f, 255f).toInt()
+        (v shl 16) or (v shl 8) or v
     }
+    out.setRGB(0, 0, width, height, pixels, 0, width)
     return out
 }
 
@@ -86,8 +87,7 @@ fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
  * Позволяет объединить последовательность из нескольких фильтров
  * в один фильтр, что ускоряет обработку, особенно для больших изображений
  * @see - https://en.wikipedia.org/wiki/Convolution#Properties
- *
-*/
+ */
 fun composeKernels(k1: Array<FloatArray>, k2: Array<FloatArray>): Array<FloatArray> {
     val h1 = k1.size; val w1 = k1[0].size
     val h2 = k2.size; val w2 = k2[0].size
@@ -145,8 +145,6 @@ sealed class ConvolutionMode(val label: String) {
         }
     }
 }
-
-// Выполнение свёртки одного ядра в параллельном режиме заданного изображения
 
 /**
  * Выполняет свёртку одного ядра с заданным изображением в параллельном режиме

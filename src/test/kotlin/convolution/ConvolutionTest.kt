@@ -12,10 +12,6 @@ import org.example.convolution.kernels.Kernels9x9
 // Погрешность при сравнении значений
 private const val EPS = 2e-4f
 
-/**
- * Сравнение двух изображений попиксельно с заданной точностью,
- * при несовпадении выводит сообщение с координатами и значениями
- */
 private fun assertImagesEqual(
     expected: GrayImage,
     actual:   GrayImage,
@@ -55,18 +51,13 @@ private fun assertInteriorEqual(
         }
 }
 
-/**
- * Генерирует случайное изображение заданного размера с фиксированным seed
- * Использует один генератор Random для всего массива
- */
-private fun randomImageFast(width: Int, height: Int, seed: Long = 42): GrayImage {
+/** Генерирует случайное изображение заданного размера с фиксированным seed */
+private fun randomImageFast(width: Int, height: Int, seed: Long = 52): GrayImage {
     val rng = Random(seed)
     return GrayImage(width, height, FloatArray(width * height) { rng.nextFloat() * 255f })
 }
 
-/**
- * Создаёт изображение, заполненное постоянным значением
- */
+/** Создаёт изображение, заполненное постоянным значением */
 private fun constantImage(width: Int, height: Int, value: Float) =
     GrayImage(width, height, FloatArray(width * height) { value })
 
@@ -121,14 +112,11 @@ class SequentialConvolutionTest {
         assertImagesEqual(constantImage(40, 40, 0f), convolveSequential(img, Array(5) { FloatArray(5) }))
     }
 
-    // Свойство композиции: последовательное применение K1 затем K2 должно совпадать
-
     /** Композиция двух ядер (Box Blur → Sharpen) эквивалентна составному ядру */
     @Test fun `composing two kernels equals sequential application (interior)`() {
         val img = randomImageFast(64, 64)
         val sequential = convolveSequential(convolveSequential(img, Kernels3x3.BOX_BLUR), Kernels3x3.SHARPEN)
         val composed   = convolveSequential(img, composeKernels(Kernels3x3.BOX_BLUR, Kernels3x3.SHARPEN))
-        // Составное ядро 5×5 → отступ от края = 2
         assertInteriorEqual(sequential, composed, pad = 2, eps = 1e-3f)
     }
 
@@ -138,7 +126,6 @@ class SequentialConvolutionTest {
         val ks = listOf(Kernels3x3.GAUSSIAN_BLUR, Kernels3x3.SHARPEN, Kernels3x3.BOX_BLUR)
         val sequential = ks.fold(img, ::convolveSequential)
         val composed   = convolveSequential(img, ks.composed())
-        // 3 ядра 3×3 → составное 7×7 → отступ = 3
         assertInteriorEqual(sequential, composed, pad = 3, eps = 1e-2f)
     }
 
@@ -231,7 +218,7 @@ class ParallelConvolutionTest {
      */
     private fun checkMode(mode: ParallelMode, w: Int = 80, h: Int = 60,
                           kernel: Array<FloatArray> = Kernels3x3.GAUSSIAN_BLUR,
-                          seed: Long = 42) = runBlocking {
+                          seed: Long = 52) = runBlocking {
         val img      = randomImageFast(w, h, seed)
         val expected = convolveSequential(img, kernel)
         for (threads in listOf(1, 2, 4, 8)) {
@@ -303,7 +290,7 @@ class ParallelConvolutionTest {
 
     /** Случайные ядра разных размеров: параллельные режимы должны совпадать с последовательным */
     @Test fun `random odd-sized kernels parallel equals sequential`() = runBlocking {
-        val rng = Random(42)
+        val rng = Random(52)
         val img = randomImageFast(64, 64)
         for (kSize in listOf(1, 3, 5, 7)) {
             val kernel = Array(kSize) { FloatArray(kSize) { rng.nextFloat() * 2f - 1f } }
@@ -326,8 +313,6 @@ class ParallelConvolutionTest {
         }
     }
 }
-
-// Ядра большего размера (5×5, 7×7, 9×9)
 
 /**
  * Проверяются свойства, уникальные для крупных ядер:
@@ -381,10 +366,7 @@ class LargeKernelTest {
         assertEquals(9, composed[0].size, "composed width")
     }
 
-    /**
-     * Последовательное применение двух 5×5 ядер совпадает с применением их композиции
-     * на внутренних пикселях
-     */
+    /** Последовательное применение двух 5×5 ядер совпадает с применением их композиции на внутренних пикселях */
     @Test fun `composing two 5x5 kernels equals sequential pipeline (interior)`() {
         val img = randomImageFast(80, 80)
         val k1 = Kernels5x5.GAUSSIAN_BLUR
@@ -394,9 +376,7 @@ class LargeKernelTest {
         assertInteriorEqual(sequential, composed, pad = 4, eps = 1e-2f)
     }
 
-    /**
-     * Последовательное применение двух 7×7 ядер совпадает с применением их композиции
-     */
+    /** Последовательное применение двух 7×7 ядер совпадает с применением их композиции */
     @Test fun `composing two 7x7 kernels equals sequential pipeline (interior)`() {
         val img = randomImageFast(100, 100)
         val k1 = Kernels7x7.GAUSSIAN_BLUR

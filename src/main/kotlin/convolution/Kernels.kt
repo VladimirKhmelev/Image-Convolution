@@ -28,12 +28,12 @@ object Kernels {
         "Эмбосс 5×5"        to Kernels5x5.EMBOSS,
 
         // 7x7
-        "Идентити 7×7"               to Kernels7x7.IDENTITY,
-        "Box Blur 7×7"               to Kernels7x7.BOX_BLUR,
-        "Gaussian Blur 7×7"          to Kernels7x7.GAUSSIAN_BLUR,
-        "Резкость 7×7"               to Kernels7x7.SHARPEN,
-        "Края 7×7"                   to Kernels7x7.EDGE_DETECTION,
-        "Эмбосс 7×7"                 to Kernels7x7.EMBOSS,
+        "Идентити 7×7"      to Kernels7x7.IDENTITY,
+        "Box Blur 7×7"      to Kernels7x7.BOX_BLUR,
+        "Gaussian Blur 7×7" to Kernels7x7.GAUSSIAN_BLUR,
+        "Резкость 7×7"      to Kernels7x7.SHARPEN,
+        "Края 7×7"          to Kernels7x7.EDGE_DETECTION,
+        "Эмбосс 7×7"        to Kernels7x7.EMBOSS,
 
         // 9x9
         "Идентити 9×9"      to Kernels9x9.IDENTITY,
