@@ -91,6 +91,8 @@ suspend fun runPipeline(
                         result = when (val mode = config.workerMode) {
                             is ConvolutionMode.Sequential ->
                                 convolveSequentialPipeline(task.image, config.kernels)
+                            is ConvolutionMode.GPU        ->
+                                convolveGpuPipeline(task.image, config.kernels)
                             is ConvolutionMode.Parallel   ->
                                 convolveParallelPipeline(
                                     task.image, config.kernels, mode.mode,

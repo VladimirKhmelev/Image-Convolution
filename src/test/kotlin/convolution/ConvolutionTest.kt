@@ -57,9 +57,8 @@ private fun randomImageFast(width: Int, height: Int, seed: Long = 52): GrayImage
     return GrayImage(width, height, FloatArray(width * height) { rng.nextFloat() * 255f })
 }
 
-/** Создаёт изображение, заполненное постоянным значением */
-private fun constantImage(width: Int, height: Int, value: Float) =
-    GrayImage(width, height, FloatArray(width * height) { value })
+private fun zeroImage(width: Int, height: Int) =
+    GrayImage(width, height, FloatArray(width * height))
 
 /**
  * Обрамляет ядро нулями по краям (добавляет по одной строке/столбцу сверху, снизу, слева, справа)
@@ -103,13 +102,13 @@ class SequentialConvolutionTest {
     @Test fun `zero kernel produces all-black image`() {
         val img = randomImageFast(50, 50)
         val zeroKernel = Array(3) { FloatArray(3) }
-        assertImagesEqual(constantImage(50, 50, 0f), convolveSequential(img, zeroKernel))
+        assertImagesEqual(zeroImage(50, 50), convolveSequential(img, zeroKernel))
     }
 
     /** Нулевое ядро размера 5×5 тоже даёт чёрное изображение */
     @Test fun `zero kernel of size 5x5 also produces all-black image`() {
         val img = randomImageFast(40, 40)
-        assertImagesEqual(constantImage(40, 40, 0f), convolveSequential(img, Array(5) { FloatArray(5) }))
+        assertImagesEqual(zeroImage(40, 40), convolveSequential(img, Array(5) { FloatArray(5) }))
     }
 
     /** Композиция двух ядер (Box Blur → Sharpen) эквивалентна составному ядру */
@@ -165,8 +164,8 @@ class SequentialConvolutionTest {
 
     @Test fun `1x1 image with all predefined kernels does not throw`() {
         val img = GrayImage(1, 1, floatArrayOf(128f))
-        for ((name, k) in Kernels.all) {
-            assertNotNull(convolveSequential(img, k), "failed for $name")
+        for ((_, k) in Kernels.all) {
+            convolveSequential(img, k)
         }
     }
 
@@ -339,12 +338,12 @@ class LargeKernelTest {
     @Test fun `zero-padding invariance for large predefined kernels`() {
         val img = randomImageFast(60, 60)
         for ((name, kernel) in listOf(
-            "5×5 Gaussian"   to Kernels5x5.GAUSSIAN_BLUR,
-            "5×5 Резкость"   to Kernels5x5.SHARPEN,
-            "5×5 Края"       to Kernels5x5.EDGE_DETECTION,
-            "7×7 Gaussian"   to Kernels7x7.GAUSSIAN_BLUR,
-            "7×7 Резкость"   to Kernels7x7.SHARPEN,
-            "9×9 Gaussian"   to Kernels9x9.GAUSSIAN_BLUR
+            "5×5 Gaussian"  to Kernels5x5.GAUSSIAN_BLUR,
+            "5×5 Sharpen"   to Kernels5x5.SHARPEN,
+            "5×5 Edges"     to Kernels5x5.EDGE_DETECTION,
+            "7×7 Gaussian"  to Kernels7x7.GAUSSIAN_BLUR,
+            "7×7 Sharpen"   to Kernels7x7.SHARPEN,
+            "9×9 Gaussian"  to Kernels9x9.GAUSSIAN_BLUR
         )) {
             val r1 = convolveSequential(img, kernel)
             val r2 = convolveSequential(img, zeroPadKernel(kernel))

@@ -20,6 +20,7 @@ dependencies {
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.9.0")
+    implementation("org.jocl:jocl:2.0.5")
     testImplementation(kotlin("test"))
 }
 

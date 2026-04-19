@@ -69,7 +69,7 @@ class AppViewModel {
 
     suspend fun applyFilters() {
         val img = originalImage ?: return
-        val rawKernels = kernelPipeline.mapNotNull { Kernels.all[it] }
+        val rawKernels = kernelPipeline.mapNotNull { Kernels.find(it) }
         if (rawKernels.isEmpty()) return
 
         val effectiveKernels = if (useComposed && rawKernels.size > 1)
@@ -87,6 +87,10 @@ class AppViewModel {
                         withContext(Dispatchers.Default) {
                             convolveSequentialPipeline(src, effectiveKernels)
                         }
+                    is ConvolutionMode.GPU ->
+                        withContext(Dispatchers.IO) {
+                            convolveGpuPipeline(src, effectiveKernels)
+                        }
                     is ConvolutionMode.Parallel ->
                         convolveParallelPipeline(src, effectiveKernels, mode.mode, numThreads, gridRows, gridCols)
                 }
@@ -103,7 +107,7 @@ class AppViewModel {
     /** Размер составного ядра для отображения в UI, или null если не применимо. */
     fun composedKernelSize(): Pair<Int, Int>? {
         if (!useComposed || kernelPipeline.size < 2) return null
-        val ks = kernelPipeline.mapNotNull { Kernels.all[it] }
+        val ks = kernelPipeline.mapNotNull { Kernels.find(it) }
         if (ks.size < 2) return null
         val c = ks.composed()
         return c.size to c[0].size

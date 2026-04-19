@@ -2,6 +2,7 @@ package org.example.cli
 
 import kotlinx.coroutines.runBlocking
 import org.example.convolution.*
+import org.example.convolution.GpuContext
 import org.example.pipeline.*
 import javax.imageio.ImageIO
 import java.io.File
@@ -31,7 +32,7 @@ fun runApply(cmd: CliCommand.Apply) {
     }
 
     val ks = cmd.kernelNames.map { name ->
-        Kernels.all[name] ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
+        Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
     }
     val effectiveKernels = if (cmd.compose && ks.size > 1) listOf(ks.composed()) else ks
 
@@ -45,6 +46,7 @@ fun runApply(cmd: CliCommand.Apply) {
 
     val strategyLabel = when (mode) {
         is ConvolutionMode.Sequential -> mode.label
+        is ConvolutionMode.GPU        -> "${mode.label}${GpuContext.deviceName()?.let { " [$it]" } ?: ""}"
         is ConvolutionMode.Parallel   -> when (mode.mode) {
             ParallelMode.BY_GRID -> "${mode.label} ${effectiveGridRows}×${effectiveGridCols}, $threads потоков"
             else                 -> "${mode.label}, $threads потоков"
@@ -64,6 +66,8 @@ fun runApply(cmd: CliCommand.Apply) {
             when (mode) {
                 is ConvolutionMode.Sequential ->
                     convolveSequentialPipeline(src, effectiveKernels)
+                is ConvolutionMode.GPU        ->
+                    convolveGpuPipeline(src, effectiveKernels)
                 is ConvolutionMode.Parallel   ->
                     convolveParallelPipeline(src, effectiveKernels, mode.mode, threads, effectiveGridRows, effectiveGridCols)
             }
@@ -91,7 +95,7 @@ fun runPipelineApply(cmd: CliCommand.PipelineApply) {
     }
 
     val kernels = cmd.kernelNames.map { name ->
-        Kernels.all[name] ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
+        Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
     }
 
     val available = Runtime.getRuntime().availableProcessors()

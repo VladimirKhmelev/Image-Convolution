@@ -2,6 +2,7 @@ package org.example.cli
 
 import kotlinx.coroutines.runBlocking
 import org.example.convolution.*
+import org.example.convolution.GpuContext
 import org.example.pipeline.*
 import javax.imageio.ImageIO
 import java.io.File
@@ -63,12 +64,15 @@ private fun runEntry(
 ) = runBlocking {
     when (val mode = entry.mode) {
         is ConvolutionMode.Sequential -> convolveSequentialPipeline(src, kernels)
+        is ConvolutionMode.GPU        -> convolveGpuPipeline(src, kernels)
         is ConvolutionMode.Parallel   -> convolveParallelPipeline(src, kernels, mode.mode, threads, entry.gridRows, entry.gridCols)
     }
 }
 
 private fun buildEntries(threads: Int, gridRows: Int?, gridCols: Int?): List<BenchEntry> = buildList {
     add(BenchEntry("Последовательный", ConvolutionMode.Sequential))
+    if (GpuContext.isAvailable())
+        add(BenchEntry("GPU (OpenCL) [${GpuContext.deviceName()}]", ConvolutionMode.GPU))
     add(BenchEntry("По пикселям",      ConvolutionMode.Parallel(ParallelMode.BY_PIXEL)))
     add(BenchEntry("По строкам",       ConvolutionMode.Parallel(ParallelMode.BY_ROW)))
     add(BenchEntry("По столбцам",      ConvolutionMode.Parallel(ParallelMode.BY_COLUMN)))
@@ -124,7 +128,7 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
         }
         else -> {
             val ks = cmd.kernelNames.map { name ->
-                Kernels.all[name] ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
+                Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
             }
             val label = cmd.kernelNames.joinToString(" → ")
             buildList {
@@ -256,7 +260,7 @@ fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
         listOf(Kernels.all.values.first())
     } else {
         cmd.kernelNames.map { name ->
-            Kernels.all[name] ?: error("Неизвестный фильтр: \"$name\"")
+            Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\"")
         }
     }
     val filterLabel = cmd.kernelNames.ifEmpty { listOf(Kernels.all.keys.first()) }.joinToString(" → ")

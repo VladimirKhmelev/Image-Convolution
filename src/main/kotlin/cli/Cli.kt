@@ -55,11 +55,12 @@ sealed class CliCommand {
 
 internal fun parseStrategy(s: String?): ConvolutionMode = when (s?.lowercase()?.trim()) {
     null, "seq", "sequential"              -> ConvolutionMode.Sequential
+    "gpu", "opencl"                        -> ConvolutionMode.GPU
     "pixels", "pixel"                      -> ConvolutionMode.Parallel(ParallelMode.BY_PIXEL)
     "rows",   "row"                        -> ConvolutionMode.Parallel(ParallelMode.BY_ROW)
     "cols",   "col", "columns", "column"   -> ConvolutionMode.Parallel(ParallelMode.BY_COLUMN)
     "grid"                                 -> ConvolutionMode.Parallel(ParallelMode.BY_GRID)
-    else -> error("Неизвестная стратегия: \"$s\". Допустимые: seq, pixels, rows, cols, grid")
+    else -> error("Неизвестная стратегия: \"$s\". Допустимые: seq, gpu, pixels, rows, cols, grid")
 }
 
 internal fun resolveThreads(max: Int?): Int {

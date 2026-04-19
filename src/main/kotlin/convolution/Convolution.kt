@@ -138,10 +138,11 @@ enum class ParallelMode(val label: String) {
 sealed class ConvolutionMode(val label: String) {
     data object Sequential : ConvolutionMode("Последовательный")
     data class  Parallel(val mode: ParallelMode) : ConvolutionMode(mode.label)
+    data object GPU : ConvolutionMode("GPU (OpenCL)")
 
     companion object {
         val all: List<ConvolutionMode> by lazy {
-            listOf(Sequential) + ParallelMode.entries.map { Parallel(it) }
+            listOf(Sequential, GPU) + ParallelMode.entries.map { Parallel(it) }
         }
     }
 }
