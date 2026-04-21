@@ -34,6 +34,10 @@ tasks.test {
     useJUnitPlatform()
     jvmArgs("-Djava.awt.headless=true")
     finalizedBy(tasks.jacocoTestReport)
+    testLogging {
+        events("passed", "skipped", "failed")
+        showStandardStreams = true
+    }
 }
 
 tasks.jacocoTestReport {
