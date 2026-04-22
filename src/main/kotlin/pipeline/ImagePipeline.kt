@@ -68,17 +68,20 @@ suspend fun runPipeline(
         // Стадия 1: ридер — читает файлы один за другим и кладёт задания в inputChannel
         // send() приостанавливает корутину автоматически, если канал заполнен
         val reader = launch(Dispatchers.IO) {
-            for ((index, path) in inputPaths.withIndex()) {
-                var task: ImageTask? = null
-                val ms = measureTimeMillis {
-                    val buf = ImageIO.read(File(path))
-                        ?: error("Не удалось прочитать изображение: $path")
-                    task = ImageTask(index, path, buf.toGrayImage())
+            try {
+                for ((index, path) in inputPaths.withIndex()) {
+                    lateinit var task: ImageTask
+                    val ms = measureTimeMillis {
+                        val buf = ImageIO.read(File(path))
+                            ?: error("Не удалось прочитать изображение: $path")
+                        task = ImageTask(index, path, buf.toGrayImage())
+                    }
+                    sumReadMs.addAndGet(ms)
+                    inputChannel.send(task)   // приостановится, если inputChannel заполнен
                 }
-                sumReadMs.addAndGet(ms)
-                inputChannel.send(task!!)   // приостановится, если inputChannel заполнен
+            } finally {
+                inputChannel.close()            // сигнал воркерам: новых заданий не будет
             }
-            inputChannel.close()            // сигнал воркерам: новых заданий не будет
         }
 
         // Стадия 2: воркеры — параллельно берут задания из inputChannel и выполняют свёртку
@@ -86,7 +89,7 @@ suspend fun runPipeline(
         val workers = (1..config.workerCount).map {
             launch(Dispatchers.Default) {
                 for (task in inputChannel) {
-                    var result: GrayImage? = null
+                    lateinit var result: GrayImage
                     val ms = measureTimeMillis {
                         result = when (val mode = config.workerMode) {
                             is ConvolutionMode.Sequential ->
@@ -101,7 +104,7 @@ suspend fun runPipeline(
                         }
                     }
                     sumProcessMs.addAndGet(ms)
-                    outputChannel.send(ImageResult(task.index, task.sourcePath, result!!, ms))
+                    outputChannel.send(ImageResult(task.index, task.sourcePath, result, ms))
                 }
             }
         }

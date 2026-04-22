@@ -6,7 +6,6 @@ import org.example.convolution.GpuContext
 import org.example.pipeline.*
 import javax.imageio.ImageIO
 import java.io.File
-import kotlin.math.sqrt
 import kotlin.system.measureTimeMillis
 
 fun runApply(cmd: CliCommand.Apply) {
@@ -27,8 +26,8 @@ fun runApply(cmd: CliCommand.Apply) {
     val (effectiveGridRows, effectiveGridCols) = if (cmd.tileSize != null) {
         tileToGrid(cmd.tileSize, image.width, image.height)
     } else {
-        val autoR = maxOf(1, sqrt(threads.toDouble()).toInt())
-        (cmd.gridRows ?: autoR) to (cmd.gridCols ?: ((threads + autoR - 1) / autoR))
+        val (autoR, autoC) = autoGrid(threads)
+        (cmd.gridRows ?: autoR) to (cmd.gridCols ?: autoC)
     }
 
     val ks = cmd.kernelNames.map { name ->

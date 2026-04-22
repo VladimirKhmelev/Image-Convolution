@@ -29,7 +29,6 @@ private class Stats(rawTimes: List<Long>) {
     }
 
     val p50 = percentile(50.0)
-    val p75 = percentile(75.0)
     val p95 = percentile(95.0)
     val p99 = percentile(99.0)
 
@@ -80,8 +79,7 @@ private fun buildEntries(threads: Int, gridRows: Int?, gridCols: Int?): List<Ben
     if (gridRows != null && gridCols != null) {
         add(BenchEntry("По сетке (${gridRows}×${gridCols})", ConvolutionMode.Parallel(ParallelMode.BY_GRID), gridRows, gridCols))
     } else {
-        val autoR = maxOf(1, sqrt(threads.toDouble()).toInt())
-        val autoC = (threads + autoR - 1) / autoR
+        val (autoR, autoC) = autoGrid(threads)
         listOf(autoR to autoC, 1 to threads, threads to 1)
             .distinct()
             .forEach { (r, c) ->
@@ -144,8 +142,7 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
     val cLabel = 20; val cMs = 9; val cSd = 9; val cPct = 8; val cCv = 7; val cSpd = 7
 
     fun fmtMs(v: Double)  = "${"%,d".format(v.roundToInt())} мс"
-    fun fmtSd(v: Double)  = "±${"%,d".format(v.roundToInt())} мс"
-    fun fmtPct(v: Double) = "${"%,d".format(v.roundToInt())} мс"
+    fun fmtSd(v: Double)  = "±${fmtMs(v)}"
 
     val entries = buildEntries(threads, effectiveGridRows, effectiveGridCols)
     val csvRows = mutableListOf<CsvRow>()
@@ -169,7 +166,6 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
             "среднее".padStart(cMs)               + " " +
             "±std".padStart(cSd)                  + " " +
             "p50".padStart(cPct)                  + " " +
-            "p75".padStart(cPct)                  + " " +
             "p95".padStart(cPct)                  + " " +
             "p99".padStart(cPct)                  + " " +
             "CV%".padStart(cCv)                   + " " +
@@ -178,12 +174,12 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
         println(
             "  " + "(все значения в мс)".padEnd(labelWidth) + " " +
             "(n=$measuredIterations)".padStart(cMs + 1 + cSd) +
-            " " + "интерполяция по методу C2".padStart(cPct * 4 + 3)
+            " " + "интерполяция по методу C2".padStart(cPct * 3 + 2)
         )
         val divider = "  " + "─".repeat(labelWidth) + " " +
             "─".repeat(cMs) + " " + "─".repeat(cSd) + " " +
             "─".repeat(cPct) + " " + "─".repeat(cPct) + " " +
-            "─".repeat(cPct) + " " + "─".repeat(cPct) + " " +
+            "─".repeat(cPct) + " " +
             "─".repeat(cCv)  + " " + "─".repeat(cSpd)
         println(divider)
 
@@ -206,10 +202,9 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
                 "  " + entry.label.padEnd(labelWidth) + " " +
                 fmtMs(s.mean).padStart(cMs)           + " " +
                 fmtSd(s.std).padStart(cSd)            + " " +
-                fmtPct(s.p50).padStart(cPct)          + " " +
-                fmtPct(s.p75).padStart(cPct)          + " " +
-                fmtPct(s.p95).padStart(cPct)          + " " +
-                fmtPct(s.p99).padStart(cPct)          + " " +
+                fmtMs(s.p50).padStart(cPct)          + " " +
+                fmtMs(s.p95).padStart(cPct)          + " " +
+                fmtMs(s.p99).padStart(cPct)          + " " +
                 cvStr.padStart(cCv)                   + " " +
                 speedup.padStart(cSpd)
             )

@@ -17,7 +17,8 @@ class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
  * Используется стандартная формула Rec. 601: Y = 0.299*R + 0.587*G + 0.114*B
  */
 fun BufferedImage.toGrayImage(): GrayImage {
-    val w = width; val h = height
+    val w = width
+    val h = height
     val pixels = getRGB(0, 0, w, h, null, 0, w)
     val img = GrayImage(w, h)
     for (i in pixels.indices) {
@@ -65,10 +66,18 @@ private fun applyKernelAt(
     return sum
 }
 
+// Вычисляет размеры сетки как (sqrt(N), ceil(N / sqrt(N))) для размещения всех потоков
+fun autoGrid(threads: Int): Pair<Int, Int> {
+    val r = maxOf(1, sqrt(threads.toDouble()).toInt())
+    return r to (threads + r - 1) / r
+}
+
 // Задание 1 - последовательно
 fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
-    val kH = kernel.size; val kW = kernel[0].size
-    val padY = kH / 2;    val padX = kW / 2
+    val kH = kernel.size
+    val kW = kernel[0].size
+    val padY = kH / 2
+    val padX = kW / 2
     val dst = GrayImage(src.width, src.height)
     for (y in 0 until src.height)
         for (x in 0 until src.width)
@@ -89,13 +98,16 @@ fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
  * @see - https://en.wikipedia.org/wiki/Convolution#Properties
  */
 fun composeKernels(k1: Array<FloatArray>, k2: Array<FloatArray>): Array<FloatArray> {
-    val h1 = k1.size; val w1 = k1[0].size
-    val h2 = k2.size; val w2 = k2[0].size
+    val h1 = k1.size
+    val w1 = k1[0].size
+    val h2 = k2.size
+    val w2 = k2[0].size
     return Array(h1 + h2 - 1) { n ->
         FloatArray(w1 + w2 - 1) { m ->
             var sum = 0f
             for (k in 0 until h1) for (l in 0 until w1) {
-                val nk = n - k; val ml = m - l
+                val nk = n - k
+                val ml = m - l
                 if (nk in 0 until h2 && ml in 0 until w2)
                     sum += k1[k][l] * k2[nk][ml]
             }
@@ -158,9 +170,12 @@ suspend fun convolveParallel(
     gridRows: Int = 0,   // 0 = авто (√numThreads)
     gridCols: Int = 0    // 0 = авто
 ): GrayImage = withContext(Dispatchers.Default) {
-    val h = src.height; val w = src.width
-    val kH = kernel.size; val kW = kernel[0].size
-    val padY = kH / 2;    val padX = kW / 2
+    val h = src.height
+    val w = src.width
+    val kH = kernel.size
+    val kW = kernel[0].size
+    val padY = kH / 2
+    val padX = kW / 2
     val dst = GrayImage(w, h)
 
     when (mode) {
@@ -173,7 +188,8 @@ suspend fun convolveParallel(
                     val start = t * chunk
                     val end   = minOf(start + chunk, total)
                     for (i in start until end) {
-                        val py = i / w; val px = i % w
+                        val py = i / w
+                        val px = i % w
                         dst[py, px] = applyKernelAt(src, kernel, kH, kW, padY, padX, px, py)
                     }
                 }
@@ -207,16 +223,19 @@ suspend fun convolveParallel(
         // Режим 4: разбиение на сетку прямоугольных блоков
         ParallelMode.BY_GRID -> {
             // Определяем количество строк и столбцов сетки
-            val gridR = if (gridRows > 0) gridRows else maxOf(1, sqrt(numThreads.toDouble()).toInt())
-            val gridC = if (gridCols > 0) gridCols else (numThreads + gridR - 1) / gridR
+            val (defR, defC) = autoGrid(numThreads)
+            val gridR = if (gridRows > 0) gridRows else defR
+            val gridC = if (gridCols > 0) gridCols else defC
             val rowH  = (h + gridR - 1) / gridR
             val colW  = (w + gridC - 1) / gridC
             // Запускаем корутину для каждой ячейки сетки
             (0 until gridR).flatMap { gr ->
                 (0 until gridC).map { gc ->
                     async {
-                        val y0 = gr * rowH; val y1 = minOf(y0 + rowH, h)
-                        val x0 = gc * colW; val x1 = minOf(x0 + colW, w)
+                        val y0 = gr * rowH
+                        val y1 = minOf(y0 + rowH, h)
+                        val x0 = gc * colW
+                        val x1 = minOf(x0 + colW, w)
                         for (y in y0 until y1)
                             for (x in x0 until x1)
                                 dst[y, x] = applyKernelAt(src, kernel, kH, kW, padY, padX, x, y)
