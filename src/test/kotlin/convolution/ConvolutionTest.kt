@@ -40,7 +40,8 @@ private fun assertInteriorEqual(
 ) {
     assertEquals(expected.width,  actual.width)
     assertEquals(expected.height, actual.height)
-    val w = expected.width; val h = expected.height
+    val w = expected.width
+    val h = expected.height
     check(w > 2 * pad && h > 2 * pad) { "image too small for pad=$pad: ${w}×${h}" }
     for (y in pad until h - pad)
         for (x in pad until w - pad) {
@@ -71,6 +72,41 @@ private fun zeroPadKernel(k: Array<FloatArray>): Array<FloatArray> {
         FloatArray(w) { x ->
             if (y in 1..k.size && x in 1..k[0].size) k[y - 1][x - 1] else 0f
         }
+    }
+}
+
+/**
+ * Тесты для autoGrid — функции разбиения потоков на прямоугольную сетку
+ * Проверяют конкретные значения, инвариант покрытия и обработку недопустимых входов
+ */
+class AutoGridTest {
+
+    /** autoGrid(1) должен вернуть сетку 1×1 */
+    @Test fun `autoGrid(1) returns 1x1`() {
+        assertEquals(1 to 1, autoGrid(1))
+    }
+
+    /** autoGrid(4) должен вернуть квадратную сетку 2×2 */
+    @Test fun `autoGrid(4) returns 2x2`() {
+        assertEquals(2 to 2, autoGrid(4))
+    }
+
+    /** Произведение r×c должно быть не меньше запрошенного числа потоков для любого n */
+    @Test fun `autoGrid result covers all threads`() {
+        for (n in 1..64) {
+            val (r, c) = autoGrid(n)
+            assertTrue(r * c >= n, "autoGrid($n) = ${r}x${c}, но ${r}x${c} < $n")
+        }
+    }
+
+    /** autoGrid(0) должен бросить исключение — деление на ноль в BY_GRID */
+    @Test fun `autoGrid(0) throws`() {
+        assertFailsWith<IllegalArgumentException> { autoGrid(0) }
+    }
+
+    /** Отрицательное число потоков недопустимо */
+    @Test fun `autoGrid negative throws`() {
+        assertFailsWith<IllegalArgumentException> { autoGrid(-1) }
     }
 }
 

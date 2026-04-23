@@ -160,7 +160,8 @@ object GpuContext {
 
         val w  = src.width
         val h  = src.height
-        val kH = filterKernel.size; val kW = filterKernel[0].size
+        val kH = filterKernel.size
+        val kW = filterKernel[0].size
         // Преобразуем 2D ядро в одномерный массив для OpenCL
         val kernelFlat = FloatArray(kH * kW) { i -> filterKernel[i / kW][i % kW] }
 

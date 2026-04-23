@@ -139,7 +139,12 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
         }
     }
 
-    val cLabel = 20; val cMs = 9; val cSd = 9; val cPct = 8; val cCv = 7; val cSpd = 7
+    val cLabel = 20
+    val cMs = 9
+    val cSd = 9
+    val cPct = 8
+    val cCv = 7
+    val cSpd = 7
 
     fun fmtMs(v: Double)  = "${"%,d".format(v.roundToInt())} мс"
     fun fmtSd(v: Double)  = "±${fmtMs(v)}"
@@ -279,8 +284,12 @@ fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
     val warmupBatch    = List(4) { cmd.imagePath }
     val measuredRounds = 5
 
-    val cW = 10; val cThroughput = 14; val cTotal = 12
-    val cRead = 11; val cProcess = 12; val cWrite = 11
+    val cW          = 10
+    val cThroughput = 14
+    val cTotal      = 12
+    val cRead       = 11
+    val cProcess    = 12
+    val cWrite      = 11
 
     println(
         "  " + "воркеры".padStart(cW)   + " " +

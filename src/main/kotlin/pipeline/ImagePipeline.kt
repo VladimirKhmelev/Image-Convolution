@@ -11,19 +11,22 @@ import kotlin.system.measureTimeMillis
 
 // Задание 3 — потоковая обработка массива изображений
 
+/** Задание на обработку одного изображения, передаваемое от ридера к воркерам */
 data class ImageTask(
-    val index:      Int,
+    val index:      Int,       // порядковый номер в исходном списке
     val sourcePath: String,
     val image:      GrayImage
 )
 
+/** Результат свёртки одного изображения, передаваемый от воркеров к врайтеру */
 data class ImageResult(
-    val index:        Int,
+    val index:        Int,       // совпадает с ImageTask.index — нужен для именования файла
     val sourcePath:   String,
     val result:       GrayImage,
     val processingMs: Long
 )
 
+/** Конфигурация пайплайна потоковой обработки */
 data class PipelineConfig(
     val kernels:          List<Array<FloatArray>>,
     val workerCount:      Int             = Runtime.getRuntime().availableProcessors(),
@@ -35,15 +38,24 @@ data class PipelineConfig(
     val outputBufferSize: Int             = workerCount * 2
 )
 
+/** Сводная статистика одного запуска пайплайна — времена суммарные по всем воркерам */
 data class PipelineStats(
     val totalImages:  Int,
     val totalMs:      Long,
     val sumReadMs:    Long,
     val sumProcessMs: Long,
     val sumWriteMs:   Long,
-    val throughput:   Double
+    val throughput:   Double   // изображений в секунду
 )
 
+/**
+ * Запускает трёхстадийный пайплайн обработки изображений
+ *
+ * Стадии работают конкурентно через два буферизованных канала:
+ * - ридер читает файлы и кладёт [ImageTask] в inputChannel
+ * - воркеры забирают задания и кладут [ImageResult] в outputChannel
+ * - врайтер сохраняет результаты на диск (если указан [outputDir])
+ */
 suspend fun runPipeline(
     inputPaths: List<String>,
     outputDir:  String?,
@@ -146,16 +158,16 @@ suspend fun runPipeline(
     )
 }
 
-/** Формирует путь выходного файла: outputDir/<имя_без_расширения>_NNN.png */
+/** Формирует путь выходного файла вида `outputDir/<имя_без_расширения>_NNN.png` */
 fun outputFilePath(sourcePath: String, outputDir: String, index: Int): File {
     val base = File(sourcePath).nameWithoutExtension
     return File(outputDir, "${base}_${"%03d".format(index)}.png")
 }
 
-/** Расширения файлов, которые считаются изображениями при сканировании директории */
-val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "bmp", "gif")
+/** Расширения, которые считаются изображениями при сканировании директории */
+private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "bmp", "gif")
 
-/** Возвращает отсортированный список изображений в директории (или список из одного пути, если это файл) */
+/** Возвращает отсортированный список изображений в директории или список из одного пути, если это файл */
 fun collectImagePaths(path: String): List<String> {
     val f = File(path)
     return if (f.isDirectory)

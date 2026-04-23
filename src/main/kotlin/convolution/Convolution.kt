@@ -68,6 +68,7 @@ private fun applyKernelAt(
 
 // Вычисляет размеры сетки как (sqrt(N), ceil(N / sqrt(N))) для размещения всех потоков
 fun autoGrid(threads: Int): Pair<Int, Int> {
+    require(threads >= 1) { "threads должен быть >= 1, получено: $threads" }
     val r = maxOf(1, sqrt(threads.toDouble()).toInt())
     return r to (threads + r - 1) / r
 }
