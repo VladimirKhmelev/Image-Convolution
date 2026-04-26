@@ -35,6 +35,11 @@ class AppViewModel {
         private set
     var errorMessage by mutableStateOf<String?>(null)
         private set
+    var applyCount      by mutableStateOf(0)
+        private set
+    var lastAppliedMode by mutableStateOf<ConvolutionMode?>(null)
+        private set
+    private val runCountPerMode = mutableMapOf<ConvolutionMode, Int>()
 
     fun loadImage() {
         val chooser = JFileChooser()
@@ -97,6 +102,9 @@ class AppViewModel {
             }
             processedImage = withContext(Dispatchers.Default) { dst.toBufferedImage() }
             elapsedMs = ms
+            lastAppliedMode = mode
+            applyCount = (runCountPerMode[mode] ?: 0) + 1
+            runCountPerMode[mode] = applyCount
         } catch (e: Exception) {
             errorMessage = "Ошибка: ${e.message}"
         } finally {

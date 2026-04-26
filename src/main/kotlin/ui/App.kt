@@ -148,6 +148,13 @@ fun AppContent() {
                     vm.elapsedMs?.let {
                         Text("Время: $it мс", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    if (vm.lastAppliedMode == vm.selectedMode && vm.applyCount > 1) {
+                        Text(
+                            "Повторный запуск — JIT уже прогрет, время может быть занижено",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                     vm.errorMessage?.let {
                         Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
                     }
