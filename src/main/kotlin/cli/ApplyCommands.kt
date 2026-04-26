@@ -101,6 +101,15 @@ fun runPipelineApply(cmd: CliCommand.PipelineApply) {
     val workers   = (cmd.workers ?: available).coerceAtLeast(1)
     val threads   = (cmd.workerThreads ?: 1).coerceAtLeast(1)
     val mode      = parseStrategy(cmd.workerStrategy)
+    val gpuWorkers = (cmd.gpuWorkers ?: 0).coerceIn(0, workers)
+
+    // Предупреждение: пользователь запросил GPU-воркеров, но GPU недоступен
+    if (gpuWorkers > 0 && !GpuContext.isAvailable())
+        println("Предупреждение: GPU недоступен — $gpuWorkers GPU-воркер(а) переходят на режим '${mode.label}'")
+
+    // GpuContext.convolve — @Synchronized, поэтому несколько GPU-воркеров всё равно идут по одному
+    if (gpuWorkers > 1 && GpuContext.isAvailable())
+        println("Предупреждение: GPU-воркеры работают последовательно (GpuContext синхронизирован) — $gpuWorkers воркеров не дают реального параллелизма на GPU")
 
     val config = PipelineConfig(
         kernels          = kernels,
@@ -109,13 +118,20 @@ fun runPipelineApply(cmd: CliCommand.PipelineApply) {
         workerThreads    = threads,
         workerGridRows   = cmd.workerGridRows ?: 0,
         workerGridCols   = cmd.workerGridCols ?: 0,
+        gpuWorkerCount   = gpuWorkers,
         inputBufferSize  = cmd.inputBufferSize  ?: (workers * 2),
         outputBufferSize = cmd.outputBufferSize ?: (workers * 2)
     )
 
+    val cpuWorkers = workers - (if (GpuContext.isAvailable()) gpuWorkers else 0)
     println("Изображений  : ${cmd.inputPaths.size}")
-    println("Воркеры      : $workers  |  Режим: ${mode.label}" +
-            if (mode is ConvolutionMode.Parallel) "  |  Потоков/воркер: $threads" else "")
+    println(buildString {
+        append("Воркеры      : $workers")
+        if (gpuWorkers > 0 && GpuContext.isAvailable())
+            append("  (${gpuWorkers} GPU + $cpuWorkers CPU)")
+        append("  |  Режим CPU: ${mode.label}")
+        if (mode is ConvolutionMode.Parallel) append("  |  Потоков/воркер: $threads")
+    })
     println("Буферы       : вход=${config.inputBufferSize}  выход=${config.outputBufferSize}")
     println("Фильтры      : ${cmd.kernelNames.joinToString(" → ")}")
     if (cmd.outputDir != null) println("Вывод        : ${cmd.outputDir}")

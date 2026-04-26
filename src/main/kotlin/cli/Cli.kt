@@ -39,6 +39,7 @@ sealed class CliCommand {
         val workerThreads:    Int?          = null,
         val workerGridRows:   Int?          = null,
         val workerGridCols:   Int?          = null,
+        val gpuWorkers:       Int?          = null,
         val inputBufferSize:  Int?          = null,
         val outputBufferSize: Int?          = null,
         val outputDir:        String?       = null
@@ -82,7 +83,7 @@ fun parseArgs(args: Array<String>): CliCommand {
     val flagsWithValues = setOf(
         "threads", "grid-rows", "grid-cols", "tile-size", "output", "strategy", "csv", "kernel-size",
         "workers", "worker-strategy", "worker-threads", "worker-grid-rows", "worker-grid-cols",
-        "input-buffer", "output-buffer", "batch-size"
+        "gpu-workers", "input-buffer", "output-buffer", "batch-size"
     )
 
     // Индексы аргументов, которые являются значениями флагов (не позиционными)
@@ -144,6 +145,7 @@ fun parseArgs(args: Array<String>): CliCommand {
                 workerThreads    = parseInt("worker-threads"),
                 workerGridRows   = parseInt("worker-grid-rows"),
                 workerGridCols   = parseInt("worker-grid-cols"),
+                gpuWorkers       = parseInt("gpu-workers"),
                 inputBufferSize  = parseInt("input-buffer"),
                 outputBufferSize = parseInt("output-buffer"),
                 outputDir        = parseStr("output")

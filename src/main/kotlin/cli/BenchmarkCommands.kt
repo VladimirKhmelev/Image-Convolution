@@ -284,35 +284,60 @@ fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
     val warmupBatch    = List(4) { cmd.imagePath }
     val measuredRounds = 5
 
-    val cW          = 10
+    // Конфигурации для бенчмарка: CPU-only + гибридные (если GPU доступен)
+    data class BenchConfig(val label: String, val workerCount: Int, val gpuWorkerCount: Int = 0)
+
+    val gpuAvailable = GpuContext.isAvailable()
+    val benchConfigs = buildList {
+        // CPU-only: 1, 2, 4 … topWorkers
+        for (wc in workerCounts) add(BenchConfig("$wc CPU", wc, 0))
+        // Гибридные: 1 GPU-воркер + остальные CPU; интересны только при 2+ воркерах
+        if (gpuAvailable) {
+            for (wc in workerCounts.filter { it >= 2 })
+                add(BenchConfig("$wc (1 GPU + ${wc - 1} CPU)", wc, 1))
+            // Чистый GPU: один воркер, никакой CPU-свёртки рядом
+            add(BenchConfig("1 GPU", 1, 1))
+        }
+    }
+
     val cThroughput = 14
     val cTotal      = 12
     val cRead       = 11
     val cProcess    = 12
     val cWrite      = 11
+    // Ширина колонки «конфигурация» подгоняется под самый длинный лейбл
+    val cLabel = benchConfigs.maxOf { it.label.length }.coerceAtLeast(11)
+
+    fun printDivider() = println(
+        "  " + "─".repeat(cLabel) + " " + "─".repeat(cThroughput) + " " +
+        "─".repeat(cTotal)        + " " + "─".repeat(cRead)        + " " +
+        "─".repeat(cProcess)      + " " + "─".repeat(cWrite)       + " " + "─".repeat(7)
+    )
 
     println(
-        "  " + "воркеры".padStart(cW)   + " " +
-        "изобр/с".padStart(cThroughput) + " " +
-        "всего мс".padStart(cTotal)     + " " +
-        "чтение мс".padStart(cRead)     + " " +
-        "свёртка мс".padStart(cProcess) + " " +
-        "запись мс".padStart(cWrite)    + " " +
+        "  " + "конфигурация".padEnd(cLabel) + " " +
+        "изобр/с".padStart(cThroughput)      + " " +
+        "всего мс".padStart(cTotal)          + " " +
+        "чтение мс".padStart(cRead)          + " " +
+        "свёртка мс".padStart(cProcess)      + " " +
+        "запись мс".padStart(cWrite)         + " " +
         "ускор".padStart(7)
     )
-    println(
-        "  " + "─".repeat(cW) + " " + "─".repeat(cThroughput) + " " +
-        "─".repeat(cTotal)    + " " + "─".repeat(cRead)        + " " +
-        "─".repeat(cProcess)  + " " + "─".repeat(cWrite)       + " " + "─".repeat(7)
-    )
+    printDivider()
 
-    data class Row(val workers: Int, val throughput: Double, val totalMs: Long,
+    data class Row(val label: String, val workers: Int, val gpuWorkers: Int,
+                   val throughput: Double, val totalMs: Long,
                    val readMs: Long, val processMs: Long, val writeMs: Long)
     val rows = mutableListOf<Row>()
     var baseThroughput: Double? = null
+    var prevSection = 0   // 0 = CPU-only, 1 = гибридные — разделяем секции пустой строкой
 
-    for (wc in workerCounts) {
-        val config = PipelineConfig(kernels = kernels, workerCount = wc)
+    for (bc in benchConfigs) {
+        // Визуальный разделитель между CPU-only и гибридными строками
+        val section = if (bc.gpuWorkerCount > 0) 1 else 0
+        if (section != prevSection) { println(); prevSection = section }
+
+        val config = PipelineConfig(kernels = kernels, workerCount = bc.workerCount, gpuWorkerCount = bc.gpuWorkerCount)
 
         runBlocking { runPipeline(warmupBatch, null, config) }
         System.gc(); Thread.sleep(200)
@@ -325,18 +350,20 @@ fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
         val avgProcess    = statsList.map { it.sumProcessMs }.average().roundToInt().toLong()
         val avgWrite      = statsList.map { it.sumWriteMs   }.average().roundToInt().toLong()
 
+        // Базовый throughput — первый прогон (1 CPU-воркер)
         if (baseThroughput == null) baseThroughput = avgThroughput
         val speedup = avgThroughput / baseThroughput
 
-        rows += Row(wc, avgThroughput, avgTotal, avgRead, avgProcess, avgWrite)
+        rows += Row(bc.label, bc.workerCount, bc.gpuWorkerCount,
+                    avgThroughput, avgTotal, avgRead, avgProcess, avgWrite)
 
         println(
-            "  " + "$wc".padStart(cW)                             + " " +
-            "%.1f".format(avgThroughput).padStart(cThroughput)    + " " +
-            "$avgTotal".padStart(cTotal)                           + " " +
-            "$avgRead".padStart(cRead)                             + " " +
-            "$avgProcess".padStart(cProcess)                       + " " +
-            "$avgWrite".padStart(cWrite)                           + " " +
+            "  " + bc.label.padEnd(cLabel)                         + " " +
+            "%.1f".format(avgThroughput).padStart(cThroughput)     + " " +
+            "$avgTotal".padStart(cTotal)                            + " " +
+            "$avgRead".padStart(cRead)                              + " " +
+            "$avgProcess".padStart(cProcess)                        + " " +
+            "$avgWrite".padStart(cWrite)                            + " " +
             "×${"%.2f".format(speedup)}".padStart(7)
         )
     }
@@ -344,10 +371,10 @@ fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
 
     if (cmd.csvPath != null) {
         PrintWriter(File(cmd.csvPath).bufferedWriter()).use { pw ->
-            pw.println("filter,workers,batch_size,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup")
+            pw.println("filter,workers,gpu_workers,batch_size,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup")
             val base = rows.firstOrNull()?.throughput ?: 1.0
             for (r in rows)
-                pw.println("$filterLabel,${r.workers},${cmd.batchSize}," +
+                pw.println("$filterLabel,${r.workers},${r.gpuWorkers},${cmd.batchSize}," +
                     "${"%.2f".format(r.throughput)},${r.totalMs},${r.readMs},${r.processMs},${r.writeMs}," +
                     "%.4f".format(r.throughput / base))
         }
