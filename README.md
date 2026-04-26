@@ -1,6 +1,5 @@
 # Image Convolution
 
-Учебный проект по параллельной обработке изображений на Kotlin/JVM.
 Реализует свёртку с 6 фильтрами, 4 стратегиями CPU-параллелизации и GPU-ускорением через OpenCL (JOCL).
 
 ## Быстрый старт
@@ -20,6 +19,9 @@
 
 # CLI — пайплайн (пакетная обработка директории)
 ./gradlew run --args='/path/to/images/ "Gaussian Blur 3×3" --pipeline --workers 4 --output results/'
+
+# CLI — гибридный пайплайн (1 GPU-воркер + 3 CPU-воркера)
+./gradlew run --args='/path/to/images/ "Gaussian Blur 3×3" --pipeline --workers 4 --gpu-workers 1 --output results/'
 
 # CLI — бенчмарк пайплайна
 ./gradlew run --args='photo.png "Gaussian Blur 3×3" --pipeline --benchmark --batch-size 32'
@@ -62,12 +64,14 @@
 
 Режим `--pipeline` обрабатывает массив изображений потоком: ридер → N воркеров → врайтер.
 
+Поддерживается гибридный режим (`--gpu-workers K`): K воркеров из N используют GPU, остальные N−K работают на CPU — GPU и CPU обрабатывают разные изображения параллельно. Пока что GPU-вызовы сериализованы (`GpuContext` — синглтон с `@Synchronized`), поэтому реально одновременно на GPU работает не более 1 воркера (задание 4d — несколько параллельных свёрток на одной GPU — не реализовано).
+
 Подробнее — [DOCS.md](DOCS.md).
 
 ## Технологии
 
 - **Язык:** Kotlin 2.1.0
-- **JVM:** 21+
+- **JVM:** 21
 - **Сборка:** Gradle 8.x
 - **GPU:** JOCL (Java Bindings for OpenCL)
 - **Тестирование:** JUnit 5, JaCoCo
