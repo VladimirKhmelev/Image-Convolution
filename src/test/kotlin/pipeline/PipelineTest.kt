@@ -11,7 +11,8 @@ import kotlin.math.abs
 import kotlin.random.Random
 import kotlin.test.*
 
-private const val EPS = 1f
+private const val EPS     = 1f
+private const val GPU_EPS = 2f   // GPU float32 vs JVM float32 + PNG-roundtrip может дать до ~1.5
 
 // Задача 3 — тесты пайплайна
 
@@ -179,6 +180,61 @@ class PipelineTest {
         assertEquals(n, progressValues.size, "onProgress должен быть вызван $n раз")
         assertEquals(n, progressValues.toSet().size, "все значения должны быть уникальны")
         assertTrue(progressValues.all { it in 1..n })
+    }
+
+    // Задача 4b — гибридные воркеры (GPU + CPU)
+
+    /** Гибридный конфиг (gpuWorkerCount > 0) даёт тот же результат, что и чистый CPU */
+    @Test fun `hybrid config matches sequential result`() = runBlocking {
+        val kernel = Kernels3x3.GAUSSIAN_BLUR
+        val files  = (0 until 4).map { i -> tempImageFile(48, 48, seed = i * 5L).first }
+        val expected = files.map { f -> convolveSequential(loadGray(f), kernel).pngRoundTrip() }
+
+        val outDir = tempDir("pipeline_hybrid_")
+        // gpuWorkerCount=1: если GPU доступен — один GPU-воркер, иначе тихий фолбэк на CPU
+        runPipeline(files.map { it.path }, outDir.path,
+            PipelineConfig(listOf(kernel), workerCount = 3, gpuWorkerCount = 1))
+
+        val results = sortedByIndex(outDir.listFiles()!!)
+        assertEquals(files.size, results.size)
+        for (i in results.indices)
+            assertImagesEqual(expected[i], loadGray(results[i]), eps = GPU_EPS, label = "hybrid image=$i")
+    }
+
+    /** gpuWorkerCount > workerCount — должно молча обрезаться до workerCount */
+    @Test fun `gpuWorkerCount capped to workerCount`() = runBlocking {
+        val kernel = Kernels3x3.IDENTITY
+        val files  = (0 until 3).map { i -> tempImageFile(32, 32, seed = i.toLong()).first }
+        val expected = files.map { f -> convolveSequential(loadGray(f), kernel).pngRoundTrip() }
+
+        val outDir = tempDir("pipeline_capgpu_")
+        // gpuWorkerCount (5) > workerCount (2) — корректно обрезается внутри runPipeline
+        runPipeline(files.map { it.path }, outDir.path,
+            PipelineConfig(listOf(kernel), workerCount = 2, gpuWorkerCount = 5))
+
+        val results = sortedByIndex(outDir.listFiles()!!)
+        assertEquals(files.size, results.size)
+        for (i in results.indices)
+            assertImagesEqual(expected[i], loadGray(results[i]), eps = GPU_EPS, label = "capped gpu image=$i")
+    }
+
+    /** При недоступном GPU (gpuWorkerCount > 0) воркеры переходят на workerMode без ошибок */
+    @Test fun `gpuWorkerCount with unavailable GPU falls back to CPU silently`() = runBlocking {
+        val kernel = Kernels3x3.BOX_BLUR
+        val files  = (0 until 3).map { i -> tempImageFile(32, 32, seed = i * 2L).first }
+        val expected = files.map { f -> convolveSequential(loadGray(f), kernel).pngRoundTrip() }
+
+        val outDir = tempDir("pipeline_gpufallback_")
+        // Если GPU недоступен — gpuWorkerCount игнорируется, всё идёт на CPU
+        // Если GPU доступен — один GPU-воркер, тест проверяет корректность в обоих случаях
+        runPipeline(files.map { it.path }, outDir.path,
+            PipelineConfig(listOf(kernel), workerCount = 2,
+                workerMode = ConvolutionMode.Sequential, gpuWorkerCount = 2))
+
+        val results = sortedByIndex(outDir.listFiles()!!)
+        assertEquals(files.size, results.size)
+        for (i in results.indices)
+            assertImagesEqual(expected[i], loadGray(results[i]), eps = GPU_EPS, label = "fallback image=$i")
     }
 
     /** collectImagePaths возвращает файл как список из одного пути */

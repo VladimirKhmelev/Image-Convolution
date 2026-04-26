@@ -26,7 +26,13 @@ data class ImageResult(
     val processingMs: Long
 )
 
-/** Конфигурация пайплайна потоковой обработки */
+/**
+ * Конфигурация пайплайна потоковой обработки
+ *
+ * gpuWorkerCount воркеров из workerCount берут задания через GPU;
+ * оставшиеся (workerCount - gpuWorkerCount) работают по workerMode (CPU)
+ * Если GPU недоступен, GPU-воркеры автоматически переходят на workerMode
+ */
 data class PipelineConfig(
     val kernels:          List<Array<FloatArray>>,
     val workerCount:      Int             = Runtime.getRuntime().availableProcessors(),
@@ -34,6 +40,7 @@ data class PipelineConfig(
     val workerThreads:    Int             = 1,
     val workerGridRows:   Int             = 0,
     val workerGridCols:   Int             = 0,
+    val gpuWorkerCount:   Int             = 0,               // 0 = только CPU
     val inputBufferSize:  Int             = workerCount * 2,
     val outputBufferSize: Int             = workerCount * 2
 )
@@ -98,7 +105,15 @@ suspend fun runPipeline(
 
         // Стадия 2: воркеры — параллельно берут задания из inputChannel и выполняют свёртку
         // Channel сам раздаёт задания: каждый свободный воркер забирает следующее
-        val workers = (1..config.workerCount).map {
+
+        // Если GPU недоступен, GPU-воркеры переходят на workerMode
+        // coerceIn нужен: CLI уже проверяет gpuWorkers, но PipelineConfig — публичный data class
+        // и может быть создан напрямую (например, в тестах) с произвольным gpuWorkerCount
+        val gpuCount = if (GpuContext.isAvailable()) config.gpuWorkerCount.coerceIn(0, config.workerCount) else 0
+        val cpuCount = config.workerCount - gpuCount
+
+        // CPU-воркеры: Dispatchers.Default — CPU-bound корутины
+        val cpuWorkers = (1..cpuCount).map {
             launch(Dispatchers.Default) {
                 for (task in inputChannel) {
                     lateinit var result: GrayImage
@@ -121,9 +136,24 @@ suspend fun runPipeline(
             }
         }
 
+        // GPU-воркеры: Dispatchers.IO — GpuContext.convolve блокирующий
+        // Работают параллельно с CPU-воркерами; берут задания из того же inputChannel
+        val gpuWorkers = (1..gpuCount).map {
+            launch(Dispatchers.IO) {
+                for (task in inputChannel) {
+                    lateinit var result: GrayImage
+                    val ms = measureTimeMillis {
+                        result = convolveGpuPipeline(task.image, config.kernels)
+                    }
+                    sumProcessMs.addAndGet(ms)
+                    outputChannel.send(ImageResult(task.index, task.sourcePath, result, ms))
+                }
+            }
+        }
+
         // Закрываем outputChannel только после того, как все воркеры завершили работу
         launch {
-            workers.joinAll()
+            (cpuWorkers + gpuWorkers).joinAll()
             outputChannel.close()
         }
 
