@@ -15,7 +15,9 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
+    jvmArgs("-Djava.awt.headless=true")
 }
+
 kotlin {
     jvmToolchain(21)
 }
