@@ -1,0 +1,15 @@
+filter                                                                     , strategy        , threads, width, height, mean_ms, std_ms, p50_ms, p95_ms, speedup
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , Последовательный, 12     , 128  , 128   , 3.2955 , 0.3235, 3.2279, 3.3125, 1.0000 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По пикселям     , 12     , 128  , 128   , 2.0433 , 0.4617, 1.9130, 2.4479, 1.6128 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По строкам      , 12     , 128  , 128   , 2.0076 , 1.1144, 1.5285, 4.6755, 1.6415 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По столбцам     , 12     , 128  , 128   , 1.4888 , 0.1853, 1.4802, 1.7802, 2.2136 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По сетке (3×4)  , 12     , 128  , 128   , 1.6721 , 0.3153, 1.6221, 1.9912, 1.9709 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По сетке (1×12) , 12     , 128  , 128   , 1.6804 , 0.1886, 1.6605, 2.0068, 1.9611 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7                  , По сетке (12×1) , 12     , 128  , 128   , 1.5803 , 0.1366, 1.5503, 1.7855, 2.0854 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), Последовательный, 12     , 128  , 128   , 5.7065 , 0.3495, 5.6295, 5.7977, 1.0000 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По пикселям     , 12     , 128  , 128   , 1.7583 , 0.1815, 1.7236, 2.1375, 3.2454 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По строкам      , 12     , 128  , 128   , 1.4424 , 0.0649, 1.4428, 1.5616, 3.9562 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По столбцам     , 12     , 128  , 128   , 1.5331 , 0.3809, 1.4434, 2.1083, 3.7221 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По сетке (3×4)  , 12     , 128  , 128   , 1.6709 , 0.2753, 1.6557, 2.1383, 3.4151 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По сетке (1×12) , 12     , 128  , 128   , 1.5381 , 0.1995, 1.4866, 1.7783, 3.7100 
+Gaussian Blur 3×3 → Gaussian Blur 5×5 → Gaussian Blur 7×7 (составной 13×13), По сетке (12×1) , 12     , 128  , 128   , 1.5893 , 0.2265, 1.5161, 2.0735, 3.5906 

@@ -1,6 +1,8 @@
 package org.example.convolution
 
+import kotlinx.coroutines.*
 import java.awt.image.BufferedImage
+import kotlin.math.sqrt
 
 class GrayImage(val width: Int, val height: Int, val data: FloatArray) {
     constructor(width: Int, height: Int) : this(width, height, FloatArray(width * height))
@@ -65,4 +67,142 @@ fun convolveSequential(src: GrayImage, kernel: Array<FloatArray>): GrayImage {
         for (x in 0 until src.width)
             dst[y, x] = applyKernelAt(src, kernel, kH, kW, padY, padX, x, y)
     return dst
+}
+
+/**
+ * Вычисляет свёртку двух ядер: k1 ⊛ k2
+ *
+ * Применяет k1, затем k2 к изображению математически эквивалентно
+ * однократному применению их свёртки. Это позволяет заменить N проходов
+ * по изображению одним более крупным ядром ((h1+h2-1)×(w1+w2-1))
+ */
+fun composeKernels(k1: Array<FloatArray>, k2: Array<FloatArray>): Array<FloatArray> {
+    val h1 = k1.size
+    val w1 = k1[0].size
+    val h2 = k2.size
+    val w2 = k2[0].size
+    return Array(h1 + h2 - 1) { n ->
+        FloatArray(w1 + w2 - 1) { m ->
+            var sum = 0f
+            for (k in 0 until h1) for (l in 0 until w1) {
+                val nk = n - k
+                val ml = m - l
+                if (nk in 0 until h2 && ml in 0 until w2)
+                    sum += k1[k][l] * k2[nk][ml]
+            }
+            sum
+        }
+    }
+}
+
+fun List<Array<FloatArray>>.composed(): Array<FloatArray> = reduce(::composeKernels)
+
+fun convolveSequentialPipeline(src: GrayImage, kernels: List<Array<FloatArray>>): GrayImage =
+    kernels.fold(src, ::convolveSequential)
+
+suspend fun convolveParallelPipeline(
+    src: GrayImage,
+    kernels: List<Array<FloatArray>>,
+    mode: ParallelMode,
+    numThreads: Int = Runtime.getRuntime().availableProcessors(),
+    gridRows: Int = 0,
+    gridCols: Int = 0
+): GrayImage = kernels.fold(src) { acc, k ->
+    convolveParallel(acc, k, mode, numThreads, gridRows, gridCols)
+}
+
+fun autoGrid(threads: Int): Pair<Int, Int> {
+    require(threads >= 1) { "threads должен быть >= 1, получено: $threads" }
+    val r = maxOf(1, sqrt(threads.toDouble()).toInt())
+    return r to (threads + r - 1) / r
+}
+
+enum class ParallelMode(val label: String) {
+    BY_PIXEL("По пикселям"),
+    BY_ROW("По строкам"),
+    BY_COLUMN("По столбцам"),
+    BY_GRID("По сетке")
+}
+
+sealed class ConvolutionMode(val label: String) {
+    data object Sequential : ConvolutionMode("Последовательный")
+    data class  Parallel(val mode: ParallelMode) : ConvolutionMode(mode.label)
+}
+
+suspend fun convolveParallel(
+    src: GrayImage,
+    kernel: Array<FloatArray>,
+    mode: ParallelMode,
+    numThreads: Int = Runtime.getRuntime().availableProcessors(),
+    gridRows: Int = 0,
+    gridCols: Int = 0
+): GrayImage = withContext(Dispatchers.Default) {
+    val h = src.height
+    val w = src.width
+    val kH = kernel.size
+    val kW = kernel[0].size
+    val padY = kH / 2
+    val padX = kW / 2
+
+    val dst = GrayImage(w, h)
+
+    when (mode) {
+        ParallelMode.BY_PIXEL -> {
+            val total = h * w
+            val chunk = (total + numThreads - 1) / numThreads
+            (0 until numThreads).map { t ->
+                async {
+                    val start = t * chunk
+                    val end   = minOf(start + chunk, total)
+                    for (i in start until end) {
+                        val py = i / w
+                        val px = i % w
+                        dst[py, px] = applyKernelAt(src, kernel, kH, kW, padY, padX, px, py)
+                    }
+                }
+            }.awaitAll()
+        }
+
+        ParallelMode.BY_ROW -> {
+            val chunk = (h + numThreads - 1) / numThreads
+            (0 until numThreads).map { t ->
+                async {
+                    for (y in (t * chunk) until minOf((t + 1) * chunk, h))
+                        for (x in 0 until w)
+                            dst[y, x] = applyKernelAt(src, kernel, kH, kW, padY, padX, x, y)
+                }
+            }.awaitAll()
+        }
+
+        ParallelMode.BY_COLUMN -> {
+            val chunk = (w + numThreads - 1) / numThreads
+            (0 until numThreads).map { t ->
+                async {
+                    for (x in (t * chunk) until minOf((t + 1) * chunk, w))
+                        for (y in 0 until h)
+                            dst[y, x] = applyKernelAt(src, kernel, kH, kW, padY, padX, x, y)
+                }
+            }.awaitAll()
+        }
+
+        ParallelMode.BY_GRID -> {
+            val (defR, defC) = autoGrid(numThreads)
+            val gridR = if (gridRows > 0) gridRows else defR
+            val gridC = if (gridCols > 0) gridCols else defC
+            val rowH  = (h + gridR - 1) / gridR
+            val colW  = (w + gridC - 1) / gridC
+            (0 until gridR).flatMap { gr ->
+                (0 until gridC).map { gc ->
+                    async {
+                        val y0 = gr * rowH;  val y1 = minOf(y0 + rowH, h)
+                        val x0 = gc * colW;  val x1 = minOf(x0 + colW, w)
+                        for (y in y0 until y1)
+                            for (x in x0 until x1)
+                                dst[y, x] = applyKernelAt(src, kernel, kH, kW, padY, padX, x, y)
+                    }
+                }
+            }.awaitAll()
+        }
+    }
+    dst
 }

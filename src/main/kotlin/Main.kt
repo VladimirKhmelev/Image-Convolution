@@ -1,12 +1,15 @@
 package org.example
 
-import org.example.cli.parseArgs
-import org.example.cli.runApply
+import org.example.cli.*
 
 fun main(args: Array<String>) {
     if (args.isEmpty()) {
-        println("Использование: <путь> <фильтр...> [--output <путь>]")
+        println("Использование: <путь> <фильтр...> [--strategy <стратегия>] [--benchmark] ...")
         return
     }
-    runApply(parseArgs(args))
+
+    when (val cmd = parseArgs(args)) {
+        is CliCommand.Apply -> runApply(cmd)
+        is CliCommand.Benchmark -> runBenchmark(cmd)
+    }
 }
