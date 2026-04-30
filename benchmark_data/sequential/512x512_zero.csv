@@ -1,0 +1,2 @@
+filter,strategy,threads,width,height,mean_ms,std_ms,p50_ms,p95_ms
+Gaussian Blur 3×3,Последовательный,1,512,512,11.25,0.8507,11.0,12.0

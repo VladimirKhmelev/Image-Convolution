@@ -1,10 +1,15 @@
 plugins {
     kotlin("jvm") version "2.2.20"
+    application
     jacoco
 }
 
 group = "org.example"
 version = "1.0-SNAPSHOT"
+
+application {
+    mainClass.set("org.example.MainKt")
+}
 
 repositories {
     mavenCentral()
