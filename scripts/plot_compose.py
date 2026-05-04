@@ -7,6 +7,7 @@
 """
 
 import os
+import re
 import csv
 import argparse
 import matplotlib
@@ -79,6 +80,15 @@ def plot_per_image(all_rows: list[dict], out_dir: str) -> None:
         seq_img  = [r for r in seq_rows  if r["width"] == w and r["height"] == h and r["threads"] == max_t]
         comp_img = [r for r in comp_rows if r["width"] == w and r["height"] == h and r["threads"] == max_t]
 
+        comp_size = "?"
+        seq_passes = 1
+        if comp_img:
+            m = re.search(r"\(составной\s+(\d+[×x]\d+)\)", comp_img[0]["filter"])
+            if m:
+                comp_size = m.group(1)
+        if seq_img:
+            seq_passes = seq_img[0]["filter"].count("→") + 1
+
         seq_means, seq_stds, comp_means, comp_stds = [], [], [], []
         for prefix, _ in STRATEGY_ORDER:
             sm, ss = best_for_strategy(seq_img, prefix)
@@ -91,11 +101,11 @@ def plot_per_image(all_rows: list[dict], out_dir: str) -> None:
         b1 = ax.bar(x - bar_w / 2, seq_means, bar_w,
                     yerr=seq_stds, capsize=4,
                     color=SEQ_COLOR, alpha=0.85, edgecolor="white", linewidth=0.8,
-                    label="Последовательное (2 прохода)")
+                    label=f"Последовательное ({seq_passes} прохода)")
         b2 = ax.bar(x + bar_w / 2, comp_means, bar_w,
                     yerr=comp_stds, capsize=4,
                     color=COMP_COLOR, alpha=0.85, edgecolor="white", linewidth=0.8,
-                    label="Составной 7×7 (1 проход)")
+                    label=f"Составной {comp_size} (1 проход)")
 
         max_val = max(max(seq_means), max(comp_means), 1e-9)
         for bar, mean, std in list(zip(b1, seq_means, seq_stds)) + list(zip(b2, comp_means, comp_stds)):
