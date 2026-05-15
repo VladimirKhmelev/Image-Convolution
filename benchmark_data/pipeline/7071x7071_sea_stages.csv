@@ -1,0 +1,6 @@
+filter,workers,batch_size,width,height,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup
+Gaussian Blur 3×3 → Gaussian Blur 3×3 → Gaussian Blur 3×3,1,16,7071,7071,0.25,68075,23074,44865,63544,1.0000
+Gaussian Blur 3×3 → Gaussian Blur 3×3 → Gaussian Blur 3×3,2,16,7071,7071,0.32,49727,18023,36283,46821,1.2653
+Gaussian Blur 3×3 → Gaussian Blur 3×3 → Gaussian Blur 3×3,4,16,7071,7071,0.32,49762,18893,40274,46888,1.2643
+Gaussian Blur 3×3 → Gaussian Blur 3×3 → Gaussian Blur 3×3,8,16,7071,7071,0.31,51847,20458,43668,48902,1.2142
+Gaussian Blur 3×3 → Gaussian Blur 3×3 → Gaussian Blur 3×3,12,16,7071,7071,0.31,50805,19631,41614,47894,1.2384

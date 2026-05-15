@@ -1,0 +1,7 @@
+filter,worker_mode,workers,worker_threads,width,height,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup
+Gaussian Blur 9×9,seq,2,1,7071,7071,0.37,43158,18611,82573,0,1.0000
+Gaussian Blur 9×9,by_row×1,2,1,7071,7071,0.35,45983,18461,88155,0,0.9386
+Gaussian Blur 9×9,by_row×2,2,2,7071,7071,0.45,36002,26139,67572,0,1.2068
+Gaussian Blur 9×9,by_row×4,2,4,7071,7071,0.54,29707,27494,45051,0,1.4538
+Gaussian Blur 9×9,by_row×8,2,8,7071,7071,0.57,28152,26809,24713,0,1.5337
+Gaussian Blur 9×9,by_row×12,2,12,7071,7071,0.51,31606,30267,24506,0,1.3661
