@@ -2,6 +2,7 @@ package org.example.cli
 
 import org.example.convolution.ConvolutionMode
 import org.example.convolution.ParallelMode
+import org.example.pipeline.collectImagePaths
 
 sealed class CliCommand {
 
@@ -27,6 +28,30 @@ sealed class CliCommand {
         val compose: Boolean = false,
         val csvPath: String? = null,
         val kernelSizes: Set<Int> = emptySet()
+    ) : CliCommand()
+
+    data class PipelineApply(
+        val inputPaths: List<String>,
+        val kernelNames: List<String>,
+        val workers: Int? = null,
+        val workerStrategy: String? = null,
+        val workerThreads: Int? = null,
+        val workerGridRows: Int? = null,
+        val workerGridCols: Int? = null,
+        val inputBufferSize: Int? = null,
+        val outputBufferSize: Int? = null,
+        val outputDir: String? = null
+    ) : CliCommand()
+
+    data class PipelineBenchmark(
+        val imagePath: String,
+        val kernelNames: List<String>,
+        val batchSize:  Int = 16,
+        val maxWorkers: Int? = null,
+        val csvPath: String? = null,
+        val noWrite: Boolean = false,
+        val varyThreads: Boolean = false,
+        val workerStrategy: String? = null
     ) : CliCommand()
 }
 
@@ -56,7 +81,9 @@ internal fun tileToGrid(tileSize: Int, imageW: Int, imageH: Int): Pair<Int, Int>
 
 fun parseArgs(args: Array<String>): CliCommand {
     val flagsWithValues = setOf(
-        "threads", "grid-rows", "grid-cols", "tile-size", "output", "strategy", "csv", "kernel-size"
+        "threads", "grid-rows", "grid-cols", "tile-size", "output", "strategy", "csv", "kernel-size",
+        "workers", "worker-strategy", "worker-threads", "worker-grid-rows", "worker-grid-cols",
+        "input-buffer", "output-buffer", "batch-size"
     )
 
     val valueIndices = mutableSetOf<Int>()
@@ -92,11 +119,42 @@ fun parseArgs(args: Array<String>): CliCommand {
 
     val imagePath = positional.getOrNull(0) ?: error("Укажите путь к изображению первым аргументом")
     val kernelNames = positional.drop(1)
-    val benchmark = args.any { it == "--benchmark" }
-    val compose  = args.any { it == "--compose" }
 
-    return if (benchmark) {
-        CliCommand.Benchmark(
+    val pipeline = args.any { it == "--pipeline" }
+    val benchmark = args.any { it == "--benchmark" }
+    val compose = args.any { it == "--compose" }
+    val noWrite = args.any { it == "--no-write" }
+
+    return when {
+        pipeline && benchmark -> CliCommand.PipelineBenchmark(
+            imagePath = imagePath,
+            kernelNames = kernelNames,
+            batchSize = parseInt("batch-size") ?: 16,
+            maxWorkers = parseInt("workers"),
+            csvPath = parseStr("csv"),
+            noWrite = noWrite,
+            varyThreads = args.any { it == "--vary-threads" },
+            workerStrategy = parseStr("worker-strategy")
+        )
+
+        pipeline -> {
+            val inputPaths = collectImagePaths(imagePath)
+            if (inputPaths.isEmpty()) error("Нет изображений по пути: $imagePath")
+            CliCommand.PipelineApply(
+                inputPaths = inputPaths,
+                kernelNames = kernelNames,
+                workers = parseInt("workers"),
+                workerStrategy = parseStr("worker-strategy"),
+                workerThreads = parseInt("worker-threads"),
+                workerGridRows = parseInt("worker-grid-rows"),
+                workerGridCols = parseInt("worker-grid-cols"),
+                inputBufferSize = parseInt("input-buffer"),
+                outputBufferSize = parseInt("output-buffer"),
+                outputDir = parseStr("output")
+            )
+        }
+
+        benchmark -> CliCommand.Benchmark(
             imagePath = imagePath,
             kernelNames = kernelNames,
             maxThreads = parseInt("threads"),
@@ -111,16 +169,16 @@ fun parseArgs(args: Array<String>): CliCommand {
                 ?.toSet()
                 ?: emptySet()
         )
-    } else {
-        CliCommand.Apply(
+
+        else -> CliCommand.Apply(
             imagePath = imagePath,
             kernelNames = kernelNames,
-            strategy  = parseStr("strategy"),
+            strategy = parseStr("strategy"),
             maxThreads = parseInt("threads"),
             gridRows = parseInt("grid-rows"),
             gridCols = parseInt("grid-cols"),
             tileSize = parseInt("tile-size"),
-            compose  = compose,
+            compose = compose,
             outputPath  = parseStr("output")
         )
     }

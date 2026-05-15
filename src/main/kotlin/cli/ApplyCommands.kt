@@ -2,6 +2,7 @@ package org.example.cli
 
 import kotlinx.coroutines.runBlocking
 import org.example.convolution.*
+import org.example.pipeline.*
 import javax.imageio.ImageIO
 import java.io.File
 import kotlin.system.measureTimeMillis
@@ -19,7 +20,7 @@ fun runApply(cmd: CliCommand.Apply) {
     val image = ImageIO.read(file) ?: error("Не удалось прочитать изображение: ${cmd.imagePath}")
 
     val threads = resolveThreads(cmd.maxThreads)
-    val mode    = parseStrategy(cmd.strategy)
+    val mode = parseStrategy(cmd.strategy)
 
     val (effectiveGridRows, effectiveGridCols) = if (cmd.tileSize != null) {
         tileToGrid(cmd.tileSize, image.width, image.height)
@@ -78,4 +79,54 @@ fun runApply(cmd: CliCommand.Apply) {
     } else {
         println("(Результат не сохранён — укажите --output <путь> для сохранения)")
     }
+}
+
+fun runPipelineApply(cmd: CliCommand.PipelineApply) {
+    if (cmd.inputPaths.isEmpty()) { println("Нет входных изображений."); return }
+    if (cmd.kernelNames.isEmpty()) {
+        println("Укажите один или несколько фильтров.")
+        println("Доступные: ${Kernels.all.keys.joinToString()}")
+        return
+    }
+
+    val kernels = cmd.kernelNames.map { name ->
+        Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\". Доступные: ${Kernels.all.keys.joinToString()}")
+    }
+
+    val available = Runtime.getRuntime().availableProcessors()
+    val workers = (cmd.workers ?: available).coerceAtLeast(1)
+    val threads = (cmd.workerThreads ?: 1).coerceAtLeast(1)
+    val mode = parseStrategy(cmd.workerStrategy)
+
+    val config = PipelineConfig(
+        kernels = kernels,
+        workerCount = workers,
+        workerMode = mode,
+        workerThreads = threads,
+        workerGridRows = cmd.workerGridRows ?: 0,
+        workerGridCols = cmd.workerGridCols ?: 0,
+        inputBufferSize = cmd.inputBufferSize  ?: (workers * 2),
+        outputBufferSize = cmd.outputBufferSize ?: (workers * 2)
+    )
+
+    println("Изображений  : ${cmd.inputPaths.size}")
+    println(buildString {
+        append("Воркеры      : $workers  |  Режим: ${mode.label}")
+        if (mode is ConvolutionMode.Parallel) append("  |  Потоков/воркер: $threads")
+    })
+    println("Буферы       : вход=${config.inputBufferSize}  выход=${config.outputBufferSize}")
+    println("Фильтры      : ${cmd.kernelNames.joinToString(" → ")}")
+    if (cmd.outputDir != null) println("Вывод        : ${cmd.outputDir}")
+    println()
+
+    val stats = runBlocking {
+        runPipeline(cmd.inputPaths, cmd.outputDir, config) { done, total ->
+            print("\r  обработано: $done / $total")
+        }
+    }
+    println()
+    println("Всего        : ${stats.totalMs} мс  (${"%,.1f".format(stats.throughput)} изобр/с)")
+    println("  чтение     : ${stats.sumReadMs} мс (суммарно)")
+    println("  свёртка    : ${stats.sumProcessMs} мс (суммарно)")
+    println("  запись     : ${stats.sumWriteMs} мс (суммарно)")
 }

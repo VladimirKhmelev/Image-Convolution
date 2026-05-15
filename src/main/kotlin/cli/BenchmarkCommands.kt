@@ -2,12 +2,17 @@ package org.example.cli
 
 import kotlinx.coroutines.runBlocking
 import org.example.convolution.*
+import org.example.pipeline.*
 import javax.imageio.ImageIO
 import java.io.File
 import java.io.PrintWriter
 import java.util.Locale
+import kotlin.io.path.createTempDirectory
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
+
+private const val PIPELINE_MEASURED_ROUNDS = 5
+private const val PIPELINE_WARMUP_IMAGES = 4
 
 private class Stats(rawTimes: List<Long>) {
     val n = rawTimes.size
@@ -60,12 +65,8 @@ private fun runEntry(
     threads: Int
 ) = runBlocking {
     when (val mode = entry.mode) {
-        is ConvolutionMode.Sequential ->
-            kernels.fold(src, ::convolveSequential)
-        is ConvolutionMode.Parallel   ->
-            kernels.fold(src) { acc, k ->
-                convolveParallel(acc, k, mode.mode, threads, entry.gridRows, entry.gridCols)
-            }
+        is ConvolutionMode.Sequential -> convolveSequentialPipeline(src, kernels)
+        is ConvolutionMode.Parallel -> convolveParallelPipeline(src, kernels, mode.mode, threads, entry.gridRows, entry.gridCols)
     }
 }
 
@@ -266,4 +267,222 @@ fun runBenchmark(cmd: CliCommand.Benchmark) {
     println("─".repeat(80))
     println("n=$measuredIterations замеров / стратегию  |  прогрев=$warmupIterations  |  GC между фильтрами")
     println("CV > 10% (!) — нестабильные результаты, рекомендуется перезапуск")
+}
+
+private fun runPipelineWorkerBenchmark(cmd: CliCommand.PipelineBenchmark) {
+    val file = File(cmd.imagePath)
+    require(file.exists()) { "Файл не найден: ${cmd.imagePath}" }
+    val image = ImageIO.read(file) ?: error("Не удалось прочитать изображение: ${cmd.imagePath}")
+
+    val kernels = if (cmd.kernelNames.isEmpty()) {
+        listOf(Kernels.all.values.first())
+    } else {
+        cmd.kernelNames.map { name ->
+            Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\"")
+        }
+    }
+    val filterLabel = cmd.kernelNames.ifEmpty { listOf(Kernels.all.keys.first()) }.joinToString(" → ")
+    val available = Runtime.getRuntime().availableProcessors()
+    val fixedWorkers = (cmd.maxWorkers ?: 2).coerceAtLeast(1)
+    val strategy = parseStrategy(cmd.workerStrategy ?: "rows")
+    val strategyLabel = when (strategy) {
+        is ConvolutionMode.Sequential -> "seq"
+        is ConvolutionMode.Parallel   -> strategy.mode.name.lowercase()
+    }
+
+    val threadCounts = buildList {
+        add(1)
+        var t = 2
+        while (t <= available) { add(t); t *= 2 }
+        if (available !in this) add(available)
+    }.distinct()
+
+    val batchPaths = List(cmd.batchSize) { cmd.imagePath }
+    val warmupBatch = List(PIPELINE_WARMUP_IMAGES) { cmd.imagePath }
+    val outDir = if (cmd.noWrite) null else createTempDirectory("pipeline_wbench_").toFile()
+        .also { dir -> Runtime.getRuntime().addShutdownHook(Thread { dir.deleteRecursively() }) }.path
+
+    println("Изображение  : ${cmd.imagePath} (${image.width}×${image.height})")
+    println("Фильтры      : $filterLabel")
+    println("Батч         : ${cmd.batchSize} изображений  |  Воркеров: $fixedWorkers")
+    println("Стратегия    : $strategyLabel  |  Потоков: ${threadCounts.joinToString()}")
+    println()
+
+    data class WRow(
+        val mode: String,
+        val threads: Int,
+        val throughput: Double,
+        val totalMs: Long,
+        val readMs: Long,
+        val processMs: Long,
+        val writeMs: Long
+    )
+    val rows = mutableListOf<WRow>()
+
+    fun bench(workerMode: ConvolutionMode, threads: Int): WRow {
+        val config = PipelineConfig(
+            kernels = kernels,
+            workerCount = fixedWorkers,
+            workerMode = workerMode,
+            workerThreads = threads
+        )
+        runBlocking { runPipeline(warmupBatch, outDir, config) }
+        System.gc()
+        Thread.sleep(200)
+        val stats = (1..PIPELINE_MEASURED_ROUNDS).map { runBlocking { runPipeline(batchPaths, outDir, config) } }
+        val modeLabel = when (workerMode) {
+            is ConvolutionMode.Sequential -> "seq"
+            is ConvolutionMode.Parallel -> "${workerMode.mode.name.lowercase()}×$threads"
+        }
+        return WRow(
+            mode = modeLabel, threads = threads,
+            throughput = stats.map { it.throughput }.average(),
+            totalMs = stats.map { it.totalMs }.average().roundToInt().toLong(),
+            readMs = stats.map { it.sumReadMs }.average().roundToInt().toLong(),
+            processMs = stats.map { it.sumProcessMs }.average().roundToInt().toLong(),
+            writeMs = stats.map { it.sumWriteMs }.average().roundToInt().toLong()
+        )
+    }
+
+    val seqRow = bench(ConvolutionMode.Sequential, 1)
+    rows += seqRow
+    println("  seq:  ${"%6.1f".format(seqRow.throughput)} изобр/с")
+
+    for (t in threadCounts) {
+        val row = bench(strategy, t)
+        rows += row
+        val speedup = row.throughput / seqRow.throughput
+        println("  ${strategyLabel}×$t: ${"%6.1f".format(row.throughput)} изобр/с  ×${"%.2f".format(speedup)}")
+    }
+    println()
+
+    if (cmd.csvPath != null) {
+        PrintWriter(File(cmd.csvPath).bufferedWriter()).use { pw ->
+            pw.println("filter,worker_mode,workers,worker_threads,width,height,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup")
+            val base = seqRow.throughput.coerceAtLeast(0.001)
+            for (r in rows)
+                pw.println("$filterLabel,${r.mode},$fixedWorkers,${r.threads},${image.width},${image.height}," +
+                    "${String.format(Locale.ROOT, "%.2f", r.throughput)},${r.totalMs},${r.readMs},${r.processMs},${r.writeMs}," +
+                    String.format(Locale.ROOT, "%.4f", r.throughput / base))
+        }
+        println("CSV → ${cmd.csvPath}")
+    }
+    println("n=$PIPELINE_MEASURED_ROUNDS прогонов / конфигурацию  |  прогрев=$PIPELINE_WARMUP_IMAGES изображения")
+}
+
+fun runPipelineBenchmark(cmd: CliCommand.PipelineBenchmark) {
+    if (cmd.varyThreads) { runPipelineWorkerBenchmark(cmd); return }
+    val file = File(cmd.imagePath)
+    require(file.exists()) { "Файл не найден: ${cmd.imagePath}" }
+    val image = ImageIO.read(file) ?: error("Не удалось прочитать изображение: ${cmd.imagePath}")
+
+    val kernels = if (cmd.kernelNames.isEmpty()) {
+        listOf(Kernels.all.values.first())
+    } else {
+        cmd.kernelNames.map { name ->
+            Kernels.find(name) ?: error("Неизвестный фильтр: \"$name\"")
+        }
+    }
+    val filterLabel = cmd.kernelNames.ifEmpty { listOf(Kernels.all.keys.first()) }.joinToString(" → ")
+
+    val available = Runtime.getRuntime().availableProcessors()
+    val topWorkers = cmd.maxWorkers ?: available
+    val batchPaths = List(cmd.batchSize) { cmd.imagePath }
+    val tmpOutDir = createTempDirectory("pipeline_bench_").toFile()
+        .also { dir -> Runtime.getRuntime().addShutdownHook(Thread { dir.deleteRecursively() }) }
+
+    println("Изображение  : ${cmd.imagePath} (${image.width}×${image.height})")
+    println("Фильтры      : $filterLabel")
+    println("Батч         : ${cmd.batchSize} изображений")
+    println("Процессоров  : $available")
+    println()
+
+    val workerCounts = buildList {
+        add(1)
+        var w = 2
+        while (w <= topWorkers) { add(w); w *= 2 }
+        if (topWorkers !in this) add(topWorkers)
+    }.distinct()
+
+    val warmupBatch = List(PIPELINE_WARMUP_IMAGES) { cmd.imagePath }
+
+    data class BenchConfig(val label: String, val workerCount: Int)
+
+    val benchConfigs = workerCounts.map { wc -> BenchConfig("$wc воркеров", wc) }
+
+    val cThroughput = 14
+    val cTotal = 12
+    val cRead = 11
+    val cProcess = 12
+    val cWrite = 11
+    val cLabel = benchConfigs.maxOf { it.label.length }.coerceAtLeast(11)
+
+    fun printDivider() = println(
+        "  " + "─".repeat(cLabel) + " " + "─".repeat(cThroughput) + " " +
+        "─".repeat(cTotal)        + " " + "─".repeat(cRead)        + " " +
+        "─".repeat(cProcess)      + " " + "─".repeat(cWrite)       + " " + "─".repeat(7)
+    )
+
+    println(
+        "  " + "конфигурация".padEnd(cLabel) + " " +
+        "изобр/с".padStart(cThroughput) + " " +
+        "всего мс".padStart(cTotal)  + " " +
+        "чтение мс".padStart(cRead) + " " +
+        "свёртка мс".padStart(cProcess) + " " +
+        "запись мс".padStart(cWrite) + " " +
+        "ускор".padStart(7)
+    )
+    printDivider()
+
+    data class Row(val label: String, val workers: Int,
+           val throughput: Double, val totalMs: Long,
+           val readMs: Long, val processMs: Long, val writeMs: Long)
+    val rows = mutableListOf<Row>()
+    var baseThroughput: Double? = null
+
+    for (bc in benchConfigs) {
+        val config = PipelineConfig(kernels = kernels, workerCount = bc.workerCount)
+
+        val outDir = if (cmd.noWrite) null else tmpOutDir.path
+        runBlocking { runPipeline(warmupBatch, outDir, config) }
+        System.gc(); Thread.sleep(200)
+
+        val statsList = (1..PIPELINE_MEASURED_ROUNDS).map { runBlocking { runPipeline(batchPaths, outDir, config) } }
+
+        val avgThroughput = statsList.map { it.throughput }.average()
+        val avgTotal = statsList.map { it.totalMs }.average().roundToInt().toLong()
+        val avgRead = statsList.map { it.sumReadMs }.average().roundToInt().toLong()
+        val avgProcess = statsList.map { it.sumProcessMs }.average().roundToInt().toLong()
+        val avgWrite = statsList.map { it.sumWriteMs }.average().roundToInt().toLong()
+
+        if (baseThroughput == null) baseThroughput = avgThroughput
+        val speedup = avgThroughput / baseThroughput
+
+        rows += Row(bc.label, bc.workerCount, avgThroughput, avgTotal, avgRead, avgProcess, avgWrite)
+
+        println(
+            "  " + bc.label.padEnd(cLabel) + " " +
+            "%.1f".format(avgThroughput).padStart(cThroughput) + " " +
+            "$avgTotal".padStart(cTotal)  + " " +
+            "$avgRead".padStart(cRead)  + " " +
+            "$avgProcess".padStart(cProcess)  + " " +
+            "$avgWrite".padStart(cWrite)  + " " +
+            "×${"%.2f".format(speedup)}".padStart(7)
+        )
+    }
+    println()
+
+    if (cmd.csvPath != null) {
+        PrintWriter(File(cmd.csvPath).bufferedWriter()).use { pw ->
+            pw.println("filter,workers,batch_size,width,height,throughput_img_s,total_ms,sum_read_ms,sum_process_ms,sum_write_ms,speedup")
+            val base = rows.firstOrNull()?.throughput ?: 1.0
+            for (r in rows)
+                pw.println("$filterLabel,${r.workers},${cmd.batchSize},${image.width},${image.height}," +
+                    "${String.format(Locale.ROOT, "%.2f", r.throughput)},${r.totalMs},${r.readMs},${r.processMs},${r.writeMs}," +
+                    String.format(Locale.ROOT, "%.4f", r.throughput / base))
+        }
+        println("CSV → ${cmd.csvPath}")
+    }
+
+    println("n=$PIPELINE_MEASURED_ROUNDS прогонов / конфигурацию  |  прогрев=$PIPELINE_WARMUP_IMAGES изображения")
 }
